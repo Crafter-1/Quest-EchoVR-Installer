@@ -12,7 +12,7 @@ public class Download : MonoBehaviour
     public TMP_Text ServerData;
 
     [Header("Server")] public string[] ServerLocations =
-        { "http://echo.avagoosa.com", "http://files.echovr.de", "http://avagoosa.com"};
+        { "http://evr.echo.taxi", "http://files.echovr.de"};
 
     // Unused now!
     // public string FallbackServer = "http://echo.avagoosa.com/main.4987570.com.readyatdawn.r15.zip";
