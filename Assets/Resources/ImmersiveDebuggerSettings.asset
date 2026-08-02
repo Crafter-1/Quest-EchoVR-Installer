@@ -12,7 +12,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a7d75bea1662418ab5f9e0c22110bc09, type: 3}
   m_Name: ImmersiveDebuggerSettings
   m_EditorClassIdentifier: Meta.XR.ImmersiveDebugger::Meta.XR.ImmersiveDebugger.RuntimeSettings
-  debugTypes: []
+  debugTypes:
+  - AssemblyName: Meta.XR.ImmersiveDebugger
+    DebugTypes:
+    - TestSceneUsage
+    - UIEditorSetup
+  - AssemblyName: Meta.XR.MultiplayerBlocks.Shared
+    DebugTypes:
+    - Meta.XR.MultiplayerBlocks.Shared.CustomMatchmaking
   immersiveDebuggerEnabled: 1
   immersiveDebuggerDisplayAtStartup: 0
   enableOnlyInDebugBuild: 0
