@@ -148,7 +148,7 @@ PlayerSettings:
   preloadedAssets:
   - {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   - {fileID: 11400000, guid: f6438883749e131d0935350e1c24aee2, type: 2}
-  - {fileID: 2556725615138626395, guid: 9b33ed4d1ba10f45d8e8d6b109ec4c23, type: 2}
+  - {fileID: 11400000, guid: 814f3e84baf1d92a39af99397ea22c79, type: 2}
   metroInputSource: 0
   wsaTransparentSwapchain: 0
   m_HolographicPauseOnTrackingLoss: 1
@@ -858,7 +858,7 @@ PlayerSettings:
   suppressCommonWarnings: 1
   allowUnsafeCode: 0
   useDeterministicCompilation: 1
-  additionalIl2CppArgs: 
+  additionalIl2CppArgs: --compiler-flags="     -flto=thin"
   scriptingRuntimeVersion: 1
   gcIncremental: 1
   gcWBarrierValidation: 0

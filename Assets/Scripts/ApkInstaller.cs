@@ -5,11 +5,12 @@ using System.IO;
 
 public class ApkInstaller : MonoBehaviour
 {
-    [Header("Optional UI references for progress display")]
-    public UnityEngine.UI.Slider progressBar;      
-    public TMPro.TMP_Text statusText;              
+    [Header("UI - matches Download.cs style")]
+    public TMPro.TMP_Text statusText;             
 
     private string _apkFileName = "install.apk";
+    private long _downloadedBytes;
+    private long _totalBytes;
 
     public void DownloadAndInstallFromUrl(string url)
     {
@@ -27,7 +28,8 @@ public class ApkInstaller : MonoBehaviour
 
         string savePath = Path.Combine(Application.persistentDataPath, _apkFileName);
 
-        SetStatus("Downloading APK...");
+        // Get file size first, same approach as Download.cs's GetFileSize
+        yield return GetFileSize(url, size => _totalBytes = size);
 
         using (UnityWebRequest req = UnityWebRequest.Get(url))
         {
@@ -37,27 +39,44 @@ public class ApkInstaller : MonoBehaviour
 
             while (!operation.isDone)
             {
-                UpdateProgress(req.downloadProgress);
+                _downloadedBytes = (long)req.downloadedBytes;
+                UpdateStatusText();
                 yield return null;
             }
 
             if (req.result != UnityWebRequest.Result.Success)
             {
-                SetStatus("Download failed: " + req.error);
+                SetStatus($"APK download failed: {req.error}");
                 yield break;
             }
         }
 
-        SetStatus("Download complete. Installing...");
+        SetStatus("APK downloaded. Installing...");
         InstallApk(savePath);
     }
 
-    private void UpdateProgress(float progress)
+    private static IEnumerator GetFileSize(string url, System.Action<long> onComplete)
     {
-        if (progressBar != null)
-            progressBar.value = progress;
+        using var request = UnityWebRequest.Head(url);
+        yield return request.SendWebRequest();
 
-        SetStatus($"Downloading APK... {(progress * 100f):F0}%");
+        if (!long.TryParse(request.GetResponseHeader("Content-Length"), out var size))
+            size = 0;
+
+        onComplete?.Invoke(size);
+    }
+
+    private void UpdateStatusText()
+    {
+        var downloadedMb = _downloadedBytes / 1048576f;
+        var totalMb = _totalBytes / 1048576f;
+        var percent = _totalBytes > 0 ? (_downloadedBytes / (float)_totalBytes) * 100f : 0f;
+
+        SetStatus(
+            $"Downloading APK\n" +
+            $">>> {downloadedMb:0.0}/{totalMb:0.0}MB <<<\n" +
+            $"{percent:0.0}%"
+        );
     }
 
     private void SetStatus(string message)

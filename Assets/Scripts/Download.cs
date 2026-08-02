@@ -18,7 +18,7 @@ public class Download : MonoBehaviour
     // public string FallbackServer = "http://echo.avagoosa.com/main.4987570.com.readyatdawn.r15.zip";
 
     [Header("Config")] public int TestTimeMs = 2000;
-    public int TimeoutMs = 2000;
+    public int TimeoutMs = 2000; // only used for the quick server speed test now
     public int DownloadThreshold = 200;
     public int BatchSize = 5;
 
@@ -36,6 +36,7 @@ public class Download : MonoBehaviour
     private string _unit;
     private int _stage = 1;
     private const int StageTotal = 3;
+    private string _lastError;
 
     public void Start()
     {
@@ -53,7 +54,8 @@ public class Download : MonoBehaviour
         Output.text =
             $"{_title}\n" +
             $">>> {_progress}/{_total}{_unit} <<<\n" +
-            $"Stage {_stage}/{StageTotal} | {percent:0.0}%";
+            $"Stage {_stage}/{StageTotal} | {percent:0.0}%" +
+            (string.IsNullOrEmpty(_lastError) ? "" : $"\n\n{_lastError}");
     }
 
     #region Server Selection
@@ -105,7 +107,7 @@ public class Download : MonoBehaviour
     {
         var url = BuildUrl(server);
 
-        using var request = CreateRequest(UnityWebRequest.Get(url));
+        using var request = CreateTestRequest(UnityWebRequest.Get(url));
 
         var start = Time.time;
         request.SendWebRequest();
@@ -153,8 +155,10 @@ public class Download : MonoBehaviour
         yield return GetFileSize(_url, size => fileSize = size);
 
         SetProgress("Downloading required data", 2, fileSize / 1048576, "MB");
+        _lastError = null;
 
-        using var request = CreateRequest(UnityWebRequest.Get(_url));
+        using var request = UnityWebRequest.Get(_url);
+        request.timeout = 0; // fuck the timeout.
         request.SendWebRequest();
 
         while (!request.isDone)
@@ -168,6 +172,8 @@ public class Download : MonoBehaviour
         if (request.result != UnityWebRequest.Result.Success)
         {
             _title = "Download failed";
+            _lastError = $"{request.result}: {request.error}";
+            Debug.LogError($"[Download] Data download failed: {request.result} - {request.error} (url: {_url})");
             yield break;
         }
 
@@ -179,7 +185,7 @@ public class Download : MonoBehaviour
         StartCoroutine(UnzipData(path));
     }
 
-    private UnityWebRequest CreateRequest(UnityWebRequest request)
+    private UnityWebRequest CreateTestRequest(UnityWebRequest request)
     {
         request.timeout = TimeoutMs / 1000;
         return request;
@@ -238,6 +244,7 @@ public class Download : MonoBehaviour
         _progress = 0;
         _total = total;
         _unit = unit;
+        _lastError = null;
     }
 
     private static IEnumerator GetFileSize(string url, Action<int> onComplete)
