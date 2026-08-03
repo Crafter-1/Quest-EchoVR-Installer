@@ -8,3 +8,8 @@ The installer is fairly simple to use, with instructions for parts that need use
 
 Of course, main part of this installer is the ability to install the game Echo VR which is built on community servers now after Meta shut it down.
 For full instructions on how to install this on your quest, please read https://quest.echovr.de 
+
+## Notes
+For this you need to be in the Echo VR lounge discord. (https://discord.gg/X5Bx4fDdBG)
+For the patched method you need to be in the patcher server. (https://discord.gg/Rs8CQvjDv)
+This is built for the Meta Quest headsets, this will not work on a regular android device.
