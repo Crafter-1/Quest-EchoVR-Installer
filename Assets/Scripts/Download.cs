@@ -196,42 +196,49 @@ public class Download : MonoBehaviour
     #region Extraction
 
     private IEnumerator UnzipData(string zipPath)
+{
+    var extractPath = Path.Combine(DownloadDirectory, "Extracted");
+
+    if (!Directory.Exists(extractPath))
+        Directory.CreateDirectory(extractPath);
+
+    using var fs = File.OpenRead(zipPath);
+    using var zip = new Unity.SharpZipLib.Zip.ZipFile(fs);
+
+    var fileCount = 0;
+    foreach (Unity.SharpZipLib.Zip.ZipEntry entry in zip)
     {
-        var extractPath = Path.Combine(DownloadDirectory, "Extracted");
-
-        if (!Directory.Exists(extractPath))
-            Directory.CreateDirectory(extractPath);
-
-        using var fs = File.OpenRead(zipPath);
-        using var zip = new Unity.SharpZipLib.Zip.ZipFile(fs);
-
-        SetProgress("Extracting data", 3, (int)zip.Count, " files");
-
-        var processed = 0;
-
-        foreach (Unity.SharpZipLib.Zip.ZipEntry entry in zip)
-        {
-            var fullPath = Path.Combine(extractPath, entry.Name);
-
-            if (entry.IsDirectory)
-            {
-                Directory.CreateDirectory(fullPath);
-                continue;
-            }
-
-            Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-
-            using var zipStream = zip.GetInputStream(entry);
-            using var output = File.Create(fullPath);
-
-            zipStream.CopyTo(output);
-
-            processed++;
-            _progress = processed;
-
-            yield return null;
-        }
+        if (!entry.IsDirectory)
+            fileCount++;
     }
+
+    SetProgress("Extracting data", 3, fileCount, " files");
+
+    var processed = 0;
+
+    foreach (Unity.SharpZipLib.Zip.ZipEntry entry in zip)
+    {
+        var fullPath = Path.Combine(extractPath, entry.Name);
+
+        if (entry.IsDirectory)
+        {
+            Directory.CreateDirectory(fullPath);
+            continue;
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+
+        using var zipStream = zip.GetInputStream(entry);
+        using var output = File.Create(fullPath);
+
+        zipStream.CopyTo(output);
+
+        processed++;
+        _progress = processed;
+
+        yield return null;
+    }
+}
 
     #endregion
 
