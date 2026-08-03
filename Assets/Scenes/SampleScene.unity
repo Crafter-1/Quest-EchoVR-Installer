@@ -5470,14 +5470,15 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 'Installer made by AvaGoosa & Crafter | With help from Bryson
+  m_text: 'Installer made by AvaGoosa & Crafter | With help from FuroFloof
 
     Special
-    thanks to marshmallow_mia, sprockee, h4ck4r201, vibinator, ambrosia443, echovrhelpbot,
-    juneskiethewatermelon, Xenomega, Ready At Dawn, Oculus, my halftop server, and
-    the EVRL community
+    thanks to marshmallow_mia, sprockee, h4ck4r201, vibinator, Bryson, ambrosia443,
+    echovrhelpbot, juneskiethewatermelon, Xenomega,  Ready At Dawn, Oculus, my halftop
+    server, and the EVRL community
 
-    Un-special un-thanks to Meta & Boz... and heisthecat'
+    Un-special un-thanks to Meta & Boz... and
+    heisthecat'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: dc9d68316732d749fb8fc00538fa0684, type: 2}
   m_sharedMaterial: {fileID: 7485270507207760648, guid: dc9d68316732d749fb8fc00538fa0684, type: 2}
