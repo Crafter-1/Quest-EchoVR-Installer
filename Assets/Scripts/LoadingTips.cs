@@ -25,7 +25,16 @@ public class LoadingTips : MonoBehaviour
 
     public void Start()
     {
-        _tipUi = GetComponent<TMP_Text>();
+        if(gameObject.TryGetComponent<TMP_Text>(out TMP_Text tipUI))
+        {
+            _tipUi = tipUI;
+        }
+        else
+        {
+            Debug.LogError("Missing Tip UI Text Object!");
+            return;
+        }
+        
         _originalText = _tipUi.text;
 
         try
