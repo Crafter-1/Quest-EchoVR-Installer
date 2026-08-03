@@ -56,17 +56,17 @@ public class LoadingTips : MonoBehaviour
             {
                 case 0:
                     categoryTitle = "TIP";
-                    selectedText = Tips[Random.Range(0, Tips.Length)];
+                    if(Tips.Length > 0) selectedText = Tips[Random.Range(0, Tips.Length)];
                     break;
 
                 case 1:
                     categoryTitle = "FUN FACT";
-                    selectedText = Fact[Random.Range(0, Fact.Length)];
+                    if(Fact.Length > 0) selectedText = Fact[Random.Range(0, Fact.Length)];
                     break;
 
                 case 2:
                     categoryTitle = "JOKE";
-                    selectedText = Joke[Random.Range(0, Joke.Length)];
+                    if(Joke.Length > 0) selectedText = Joke[Random.Range(0, Joke.Length)];
                     break;
             }
 
