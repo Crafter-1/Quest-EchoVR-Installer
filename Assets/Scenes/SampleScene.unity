@@ -773,15 +773,15 @@ MonoBehaviour:
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 50be0cbb92d247947b3e462cc69ce130, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: '::'
+  m_EditorClassIdentifier: Assembly-CSharp::LoadingTips
   TipsFile: {fileID: 4900000, guid: 8dfb9c9a80fcb154db7f4dad4351b84c, type: 3}
   SwitchTime: 5
   Tips:
-  - We can use these ramps as ramps!
+  - 
   Fact:
-  - Echo VR was created as part of an internal gamejam
+  - 
   Joke:
-  - Echo Units don't have humour.
+  - 
 --- !u!1 &98336829
 GameObject:
   m_ObjectHideFlags: 0
@@ -6675,7 +6675,11 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: New Text
+  m_text: 'Running server test
+
+    >>> 0/1 <<<
+
+    Stage 1/3 | 0%'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: dc9d68316732d749fb8fc00538fa0684, type: 2}
   m_sharedMaterial: {fileID: 7485270507207760648, guid: dc9d68316732d749fb8fc00538fa0684, type: 2}
@@ -6709,7 +6713,7 @@ MonoBehaviour:
   m_fontSizeMin: 18
   m_fontSizeMax: 72
   m_fontStyle: 16
-  m_HorizontalAlignment: 1
+  m_HorizontalAlignment: 2
   m_VerticalAlignment: 256
   m_textAlignment: 65535
   m_characterSpacing: 0
@@ -6771,8 +6775,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 196, y: -225}
-  m_SizeDelta: {x: 200, y: 50}
+  m_AnchoredPosition: {x: 164, y: -157}
+  m_SizeDelta: {x: 432.6, y: 36}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!1 &1695974272
 GameObject:
