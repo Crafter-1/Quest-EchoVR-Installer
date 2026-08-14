@@ -1,0 +1,11 @@
+apply plugin: 'com.android.library'
+
+android {
+    namespace 'com.crafter.evrinstaller.fileproviderres'
+    compileSdkVersion 34
+
+    defaultConfig {
+        minSdkVersion 32
+        targetSdkVersion 34
+    }
+}

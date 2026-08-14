@@ -1,5 +1,5 @@
 {
-	"tips": [
+	"Tips": [
 		"You can switch lobbies by holding your menu button in the lobby.",
 		"You have a practice disc on your arm in the practice arena.",
 		"The right key combo lets you play a secret minigame...",
@@ -35,7 +35,7 @@
 		"Congratulations! This tip doesn't exist. Wait, I shouldn't be congratultioning you...",
 		"Practice makes perfect! Well, not perfect, but like.. you could play better than he_is_the_cat"
 	],
-	"facts": [
+	"Facts": [
 		"This is a very true fact.",
 		"Some of the dinosaurs roar if you hold them in the right spot.",
 		"This... sentence... is... FALSE!",
@@ -69,7 +69,7 @@
 		"everydaygremlin is REALLY good at art!",
 		"Nebula and Aqua are the best duo!"
 	],
-	"jokes": [
+	"Jokes": [
 		"A group of melons is called a mellen!",
 		"What did Mel say to Jack? Nothing!",
 		"Combat is coming to Quest tomorrow!",
