@@ -14,20 +14,20 @@ public class Download : MonoBehaviour
     [Header("Server")] public string[] ServerLocations =
         { "http://evr.echo.taxi", "http://files.echovr.de"};
 
-    // Unused now!
-    // public string FallbackServer = "http://echo.avagoosa.com/main.4987570.com.readyatdawn.r15.zip";
-
     [Header("Config")] public int TestTimeMs = 2000;
-    public int TimeoutMs = 2000; // only used for the quick server speed test now
+    public int TimeoutMs = 2000; // only used for the quick server speed test
     public int DownloadThreshold = 200;
     public int BatchSize = 5;
 
     [Header("File")] public string EvrVersion = "4987570";
     public string DownloadFileName = "_data.zip";
-    // public string DownloadFileName = "main.${EvrV}.com.readyatdawn.r15.zip";
 
-    [Tooltip("Leave blank to download to the ASD.")]
+    [Tooltip("Where the zip itself is downloaded to. Leave blank to use persistentDataPath.")]
     public string DownloadDirectory;
+
+    [Header("Echo VR target")]
+    [Tooltip("The actual Echo VR app's package name - extracted data must land in this app's OBB folder, not our own.")]
+    public string EchoPackageName = "com.readyatdawn.r15";
 
     private string _url;
     private string _title;
@@ -44,6 +44,8 @@ public class Download : MonoBehaviour
         ServerData.text = ServerData.text.Replace("${evrV}", EvrVersion);
         if (DownloadDirectory == "") DownloadDirectory = Application.persistentDataPath;
 
+        // Storage permission is now handled earlier by StoragePermissionGate,
+        // before this screen is ever shown - safe to go straight to the server test.
         StartCoroutine(TestServers());
     }
 
@@ -137,9 +139,7 @@ public class Download : MonoBehaviour
 
     private void SetServer(string server)
     {
-        // I know, this is the dumbest thing ever. I could use proper regex, but I'm lazy and this works for the use case.
         ServerData.text = ServerData.text.Replace("Server download location: Loading...", $"Server location: {server}");
-        // ServerData.text = ServerData.text.Replace("${svLoc}", server);
         _url = BuildUrl(server);
     }
 
@@ -158,7 +158,7 @@ public class Download : MonoBehaviour
         _lastError = null;
 
         using var request = UnityWebRequest.Get(_url);
-        request.timeout = 0; // fuck the timeout.
+        request.timeout = 0; // no timeout - large files need to run to completion
         request.SendWebRequest();
 
         while (!request.isDone)
@@ -195,50 +195,80 @@ public class Download : MonoBehaviour
 
     #region Extraction
 
-    private IEnumerator UnzipData(string zipPath)
-{
-    var extractPath = Path.Combine(DownloadDirectory, "Extracted");
-
-    if (!Directory.Exists(extractPath))
-        Directory.CreateDirectory(extractPath);
-
-    using var fs = File.OpenRead(zipPath);
-    using var zip = new Unity.SharpZipLib.Zip.ZipFile(fs);
-
-    var fileCount = 0;
-    foreach (Unity.SharpZipLib.Zip.ZipEntry entry in zip)
+    private string GetDataExtractPath()
     {
-        if (!entry.IsDirectory)
-            fileCount++;
+        // Confirmed from the real installer's source: data goes under
+        // Android/media/<package>/files - NOT Android/obb. The zip's internal
+        // "_data/..." nesting is expected and must be preserved, not flattened.
+        return Path.Combine("/storage/emulated/0/Android/media", EchoPackageName, "files");
     }
 
-    SetProgress("Extracting data", 3, fileCount, " files");
-
-    var processed = 0;
-
-    foreach (Unity.SharpZipLib.Zip.ZipEntry entry in zip)
+    private IEnumerator UnzipData(string zipPath)
     {
-        var fullPath = Path.Combine(extractPath, entry.Name);
+        string extractPath;
 
-        if (entry.IsDirectory)
+#if UNITY_ANDROID && !UNITY_EDITOR
+        extractPath = GetDataExtractPath();
+
+        try
         {
-            Directory.CreateDirectory(fullPath);
-            continue;
+            if (!Directory.Exists(extractPath))
+                Directory.CreateDirectory(extractPath);
+        }
+        catch (Exception e)
+        {
+            _title = "Extraction failed";
+            _lastError = $"Could not create OBB folder ({extractPath}): {e.Message}. " +
+                          "Make sure 'All files access' is granted for this app.";
+            Debug.LogError($"[Download] {_lastError}");
+            yield break;
+        }
+#else
+        // Editor fallback - just extract locally so testing in Play Mode doesn't crash
+        extractPath = Path.Combine(DownloadDirectory, "Extracted");
+        if (!Directory.Exists(extractPath))
+            Directory.CreateDirectory(extractPath);
+#endif
+
+        using var fs = File.OpenRead(zipPath);
+        using var zip = new Unity.SharpZipLib.Zip.ZipFile(fs);
+
+        var fileCount = 0;
+        foreach (Unity.SharpZipLib.Zip.ZipEntry entry in zip)
+        {
+            if (!entry.IsDirectory)
+                fileCount++;
         }
 
-        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        SetProgress("Extracting data", 3, fileCount, " files");
 
-        using var zipStream = zip.GetInputStream(entry);
-        using var output = File.Create(fullPath);
+        var processed = 0;
 
-        zipStream.CopyTo(output);
+        foreach (Unity.SharpZipLib.Zip.ZipEntry entry in zip)
+        {
+            var fullPath = Path.Combine(extractPath, entry.Name);
 
-        processed++;
-        _progress = processed;
+            if (entry.IsDirectory)
+            {
+                Directory.CreateDirectory(fullPath);
+                continue;
+            }
 
-        yield return null;
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+
+            using var zipStream = zip.GetInputStream(entry);
+            using var output = File.Create(fullPath);
+
+            zipStream.CopyTo(output);
+
+            processed++;
+            _progress = processed;
+
+            yield return null;
+        }
+
+        SetProgress("Data ready!", StageTotal, processed, " files");
     }
-}
 
     #endregion
 
