@@ -10,6 +10,8 @@ public class Download : MonoBehaviour
 {
     [Header("UI")] public TMP_Text Output;
     public TMP_Text ServerData;
+    public AfterInstallController afterInstallController;
+    public ApkInstaller apkInstaller;
 
     [Header("Server")] public string[] ServerLocations =
         { "http://evr.echo.taxi", "http://files.echovr.de"};
@@ -37,6 +39,8 @@ public class Download : MonoBehaviour
     private int _stage = 1;
     private const int StageTotal = 3;
     private string _lastError;
+    private string _downloadedZipPath;
+    private bool _extractionStarted;
 
     public void Start()
     {
@@ -181,8 +185,37 @@ public class Download : MonoBehaviour
         File.WriteAllBytes(path, request.downloadHandler.data);
 
         _progress = _total;
+        _downloadedZipPath = path;
+        _title = "Data downloaded";
 
-        StartCoroutine(UnzipData(path));
+        if (afterInstallController == null)
+            afterInstallController = FindObjectOfType<AfterInstallController>();
+
+        if (apkInstaller == null)
+            apkInstaller = FindObjectOfType<ApkInstaller>();
+
+        afterInstallController?.NotifyDataDownloaded();
+        apkInstaller?.NotifyDataDownloadReady();
+    }
+
+    public void ExtractDownloadedData()
+    {
+        if (_extractionStarted)
+            return;
+
+        if (string.IsNullOrEmpty(_downloadedZipPath))
+            _downloadedZipPath = Path.Combine(DownloadDirectory, DownloadFileName);
+
+        if (!File.Exists(_downloadedZipPath))
+        {
+            _title = "Extraction failed";
+            _lastError = "The downloaded data ZIP could not be found.";
+            Debug.LogError($"[Download] Missing data ZIP: {_downloadedZipPath}");
+            return;
+        }
+
+        _extractionStarted = true;
+        StartCoroutine(UnzipData(_downloadedZipPath));
     }
 
     private UnityWebRequest CreateTestRequest(UnityWebRequest request)
@@ -268,6 +301,23 @@ public class Download : MonoBehaviour
         }
 
         SetProgress("Data ready!", StageTotal, processed, " files");
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+        try
+        {
+            File.WriteAllText(Path.Combine(extractPath, ".quest_evr_data_ready"), EvrVersion);
+        }
+        catch (Exception e)
+        {
+            // Extraction itself succeeded, so a marker failure must not block completion.
+            Debug.LogWarning($"[Download] Could not write the data-ready marker: {e.Message}");
+        }
+#endif
+
+        if (afterInstallController == null)
+            afterInstallController = FindObjectOfType<AfterInstallController>();
+
+        afterInstallController?.NotifyDataReady();
     }
 
     #endregion
