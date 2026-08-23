@@ -7,10 +7,15 @@ public class ApkInstaller : MonoBehaviour
 {
     [Header("UI - matches Download.cs style")]
     public TMPro.TMP_Text statusText;             
+    public AfterInstallController afterInstallController;
 
     private string _apkFileName = "install.apk";
     private long _downloadedBytes;
     private long _totalBytes;
+    private string _pendingApkPath;
+    private bool _apkDownloadReady;
+    private bool _dataDownloadReady;
+    private bool _installStarted;
 
     public void DownloadAndInstallFromUrl(string url)
     {
@@ -51,8 +56,27 @@ public class ApkInstaller : MonoBehaviour
             }
         }
 
-        SetStatus("APK downloaded. Installing...");
-        InstallApk(savePath);
+        _pendingApkPath = savePath;
+        _apkDownloadReady = true;
+        SetStatus("APK downloaded. Waiting for game data download...");
+        TryBeginInstall();
+    }
+
+    public void NotifyDataDownloadReady()
+    {
+        _dataDownloadReady = true;
+        TryBeginInstall();
+    }
+
+    private void TryBeginInstall()
+    {
+        if (_installStarted || !_apkDownloadReady || !_dataDownloadReady ||
+            string.IsNullOrEmpty(_pendingApkPath))
+            return;
+
+        _installStarted = true;
+        SetStatus("Downloads complete. Installing APK...");
+        InstallApk(_pendingApkPath);
     }
 
     private static IEnumerator GetFileSize(string url, System.Action<long> onComplete)
@@ -90,6 +114,11 @@ public class ApkInstaller : MonoBehaviour
     private void InstallApk(string apkPath)
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
+        if (afterInstallController == null)
+            afterInstallController = FindObjectOfType<AfterInstallController>();
+
+        afterInstallController?.NotifyInstallFlowStarted();
+
         AndroidJavaClass playerClass = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
         AndroidJavaObject activity = playerClass.GetStatic<AndroidJavaObject>("currentActivity");
         AndroidJavaObject context = activity.Call<AndroidJavaObject>("getApplicationContext");
