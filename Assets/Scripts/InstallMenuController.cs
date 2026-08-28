@@ -13,10 +13,9 @@ public class InstallMenuController : MonoBehaviour
     public TMP_InputField messageInput;
     public TMP_Text errorText;
 
-    [Header("Legacy flow")]
-    public string legacyApkUrl = "http://files.echovr.de/echo_quest_16-07-2026.001.apk"; 
-
+    [Header("Install flow")]
     public ApkInstaller installer;
+    public QuestUpdateManager updateManager;
 
     [Header("Discord link")]
     public string discordUrl = "https://discord.gg/Rs8CQvjDv";
@@ -30,9 +29,38 @@ public class InstallMenuController : MonoBehaviour
     // Called by Button_Legacy's OnClick
     public void OnSelectLegacy()
     {
+        QuestUpdateManager manager = GetUpdateManager();
         mainMenuPanel.SetActive(false);
         downloadPanel.SetActive(true);
-        installer.DownloadAndInstallFromUrl(legacyApkUrl);
+
+        if (installer == null)
+            installer = FindFirstObjectByType<ApkInstaller>();
+
+        if (installer == null)
+        {
+            ShowError("Could not find the APK installer.");
+            return;
+        }
+
+        installer.SetStatusMessage("Checking the Echo update manifest...");
+        manager.EnsureManifest((success, error) =>
+        {
+            if (!success)
+            {
+                installer.SetStatusMessage(error);
+                return;
+            }
+
+            if (manager.IsManifestBaseApkInstalled() && ApkInstaller.IsEchoVrInstalled())
+            {
+                installer.SkipApkInstallBecauseCurrent();
+                return;
+            }
+
+            installer.DownloadAndInstallFromManifest(
+                manager.CurrentManifest,
+                manager.GetBaseApkMirrors());
+        });
     }
 
     // Called by Button_Patched's OnClick
@@ -55,9 +83,38 @@ public class InstallMenuController : MonoBehaviour
         }
 
         ClearError();
+        QuestUpdateManager manager = GetUpdateManager();
         patchedInputPanel.SetActive(false);
         downloadPanel.SetActive(true);
-        installer.DownloadAndInstallFromUrl(extractedUrl);
+
+        if (installer == null)
+            installer = FindFirstObjectByType<ApkInstaller>();
+
+        if (installer == null)
+        {
+            ShowError("Could not find the APK installer.");
+            return;
+        }
+
+        installer.SetStatusMessage("Checking the Echo update manifest...");
+        manager.EnsureManifest((success, error) =>
+        {
+            if (!success)
+            {
+                installer.SetStatusMessage(error);
+                return;
+            }
+
+            if (manager.IsManifestBaseApkInstalled() && ApkInstaller.IsEchoVrInstalled())
+            {
+                installer.SkipApkInstallBecauseCurrent();
+                return;
+            }
+
+            installer.DownloadAndInstallPatchedFromUrl(
+                extractedUrl,
+                manager.CurrentManifest);
+        });
     }
 
     // Optional: back button from the patched input screen to main menu
@@ -73,16 +130,25 @@ public class InstallMenuController : MonoBehaviour
         if (string.IsNullOrWhiteSpace(message))
             return null;
 
-        Match match = UrlPattern.Match(message);
-        if (!match.Success)
-            return null;
+        foreach (Match match in UrlPattern.Matches(message))
+        {
+            string url = match.Value.TrimEnd('.', ',', ')', ']', '"', '\'');
+            if (url.IndexOf(".apk", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return url;
+        }
 
-        string url = match.Value.TrimEnd('.', ',', ')', ']', '"', '\'');
+        return null;
+    }
 
-        if (!url.ToLower().Contains(".apk"))
-            return null;
+    private QuestUpdateManager GetUpdateManager()
+    {
+        if (updateManager == null)
+            updateManager = FindFirstObjectByType<QuestUpdateManager>();
 
-        return url;
+        if (updateManager == null)
+            updateManager = gameObject.AddComponent<QuestUpdateManager>();
+
+        return updateManager;
     }
 
     private void ShowError(string message)

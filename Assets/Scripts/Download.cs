@@ -12,6 +12,7 @@ public class Download : MonoBehaviour
     public TMP_Text ServerData;
     public AfterInstallController afterInstallController;
     public ApkInstaller apkInstaller;
+    public QuestUpdateManager updateManager;
 
     [Header("Server")] public string[] ServerLocations =
         { "http://evr.echo.taxi", "http://files.echovr.de"};
@@ -37,20 +38,45 @@ public class Download : MonoBehaviour
     private int _total;
     private string _unit;
     private int _stage = 1;
-    private const int StageTotal = 3;
+    private const int StageTotal = 4;
     private string _lastError;
     private string _downloadedZipPath;
     private bool _extractionStarted;
+    private bool _extractionComplete;
+    private bool _pathsInitialized;
 
     public void Start()
     {
-        DownloadFileName = DownloadFileName.Replace("${EvrV}", EvrVersion);
-        ServerData.text = ServerData.text.Replace("${evrV}", EvrVersion);
-        if (DownloadDirectory == "") DownloadDirectory = Application.persistentDataPath;
+        InitializePaths();
+
+        // Recovery path: a completed ZIP survives if the user leaves after
+        // installing the APK but before pressing Extract Data.
+        if (HasDownloadedDataZip())
+        {
+            SetProgress("Data downloaded", 2, 1, "");
+            _progress = _total;
+
+            if (afterInstallController == null)
+                afterInstallController = FindFirstObjectByType<AfterInstallController>();
+
+            if (apkInstaller == null)
+                apkInstaller = FindFirstObjectByType<ApkInstaller>();
+
+            afterInstallController?.NotifyDataDownloaded();
+            apkInstaller?.NotifyDataDownloadReady();
+            return;
+        }
 
         // Storage permission is now handled earlier by StoragePermissionGate,
         // before this screen is ever shown - safe to go straight to the server test.
         StartCoroutine(TestServers());
+    }
+
+    public bool HasDownloadedDataZip()
+    {
+        InitializePaths();
+        _downloadedZipPath = Path.Combine(DownloadDirectory, DownloadFileName);
+        return File.Exists(_downloadedZipPath);
     }
 
     public void FixedUpdate()
@@ -161,38 +187,63 @@ public class Download : MonoBehaviour
         SetProgress("Downloading required data", 2, fileSize / 1048576, "MB");
         _lastError = null;
 
-        using var request = UnityWebRequest.Get(_url);
-        request.timeout = 0; // no timeout - large files need to run to completion
-        request.SendWebRequest();
+        var path = Path.Combine(DownloadDirectory, DownloadFileName);
+        var temporaryPath = path + ".part";
 
-        while (!request.isDone)
+        try
         {
-            if (fileSize > 0)
-                _progress = (int)(request.downloadedBytes / 1048576);
-
-            yield return null;
+            Directory.CreateDirectory(DownloadDirectory);
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
         }
-
-        if (request.result != UnityWebRequest.Result.Success)
+        catch (Exception exception)
         {
             _title = "Download failed";
-            _lastError = $"{request.result}: {request.error}";
-            Debug.LogError($"[Download] Data download failed: {request.result} - {request.error} (url: {_url})");
+            _lastError = exception.Message;
             yield break;
         }
 
-        var path = Path.Combine(DownloadDirectory, DownloadFileName);
-        File.WriteAllBytes(path, request.downloadHandler.data);
+        using (var request = UnityWebRequest.Get(_url))
+        {
+            request.timeout = 0; // no timeout - large files need to run to completion
+            request.downloadHandler = new DownloadHandlerFile(temporaryPath, true);
+            request.SendWebRequest();
+
+            while (!request.isDone)
+            {
+                if (fileSize > 0)
+                    _progress = (int)(request.downloadedBytes / 1048576);
+
+                yield return null;
+            }
+
+            if (request.result != UnityWebRequest.Result.Success)
+            {
+                _title = "Download failed";
+                _lastError = $"{request.result}: {request.error}";
+                Debug.LogError($"[Download] Data download failed: {request.result} - {request.error} (url: {_url})");
+                yield break;
+            }
+        }
+
+        if (!TryReplaceDownloadedFile(temporaryPath, path, out string replaceError))
+        {
+            _title = "Download failed";
+            _lastError = replaceError;
+            Debug.LogError($"[Download] Could not store data ZIP: {replaceError}");
+            yield break;
+        }
 
         _progress = _total;
         _downloadedZipPath = path;
         _title = "Data downloaded";
+        ClearDataReadyMarker();
 
         if (afterInstallController == null)
-            afterInstallController = FindObjectOfType<AfterInstallController>();
+            afterInstallController = FindFirstObjectByType<AfterInstallController>();
 
         if (apkInstaller == null)
-            apkInstaller = FindObjectOfType<ApkInstaller>();
+            apkInstaller = FindFirstObjectByType<ApkInstaller>();
 
         afterInstallController?.NotifyDataDownloaded();
         apkInstaller?.NotifyDataDownloadReady();
@@ -202,6 +253,8 @@ public class Download : MonoBehaviour
     {
         if (_extractionStarted)
             return;
+
+        InitializePaths();
 
         if (string.IsNullOrEmpty(_downloadedZipPath))
             _downloadedZipPath = Path.Combine(DownloadDirectory, DownloadFileName);
@@ -215,7 +268,9 @@ public class Download : MonoBehaviour
         }
 
         _extractionStarted = true;
-        StartCoroutine(UnzipData(_downloadedZipPath));
+        StartCoroutine(_extractionComplete
+            ? FinishDataSetup()
+            : UnzipData(_downloadedZipPath));
     }
 
     private UnityWebRequest CreateTestRequest(UnityWebRequest request)
@@ -250,10 +305,8 @@ public class Download : MonoBehaviour
         }
         catch (Exception e)
         {
-            _title = "Extraction failed";
-            _lastError = $"Could not create OBB folder ({extractPath}): {e.Message}. " +
-                          "Make sure 'All files access' is granted for this app.";
-            Debug.LogError($"[Download] {_lastError}");
+            FailDataSetup($"Could not create Echo data folder ({extractPath}): {e.Message}. " +
+                          "Make sure 'All files access' is granted for this app.");
             yield break;
         }
 #else
@@ -279,20 +332,47 @@ public class Download : MonoBehaviour
 
         foreach (Unity.SharpZipLib.Zip.ZipEntry entry in zip)
         {
-            var fullPath = Path.Combine(extractPath, entry.Name);
+            if (!TryResolveZipEntryPath(extractPath, entry.Name, out string fullPath))
+            {
+                FailDataSetup($"The data ZIP contained an unsafe path: {entry.Name}");
+                yield break;
+            }
 
             if (entry.IsDirectory)
             {
-                Directory.CreateDirectory(fullPath);
+                try
+                {
+                    Directory.CreateDirectory(fullPath);
+                }
+                catch (Exception exception)
+                {
+                    FailDataSetup($"Could not create {entry.Name}: {exception.Message}");
+                    yield break;
+                }
                 continue;
             }
 
-            Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+            string extractionError = null;
+            try
+            {
+                string parent = Path.GetDirectoryName(fullPath);
+                if (!string.IsNullOrEmpty(parent))
+                    Directory.CreateDirectory(parent);
 
-            using var zipStream = zip.GetInputStream(entry);
-            using var output = File.Create(fullPath);
+                using (var zipStream = zip.GetInputStream(entry))
+                using (var output = File.Create(fullPath))
+                    zipStream.CopyTo(output);
+            }
+            catch (Exception exception)
+            {
+                extractionError = exception.Message;
+            }
 
-            zipStream.CopyTo(output);
+            if (extractionError != null)
+            {
+                FailDataSetup($"Could not extract {entry.Name}: {extractionError}");
+                yield break;
+            }
 
             processed++;
             _progress = processed;
@@ -300,12 +380,54 @@ public class Download : MonoBehaviour
             yield return null;
         }
 
-        SetProgress("Data ready!", StageTotal, processed, " files");
+        _extractionComplete = true;
+        yield return FinishDataSetup();
+    }
+
+    private IEnumerator FinishDataSetup()
+    {
+        if (updateManager == null)
+            updateManager = FindFirstObjectByType<QuestUpdateManager>();
+
+        if (updateManager == null)
+            updateManager = gameObject.AddComponent<QuestUpdateManager>();
+
+        SetProgress("Applying Echo updates", 4, 0, " files");
+        bool updateFinished = false;
+        bool updateSucceeded = false;
+        string updateError = null;
+
+        yield return updateManager.SynchronizeAssets(
+            (success, error) =>
+            {
+                updateSucceeded = success;
+                updateError = error;
+                updateFinished = true;
+            },
+            (message, completed, total) =>
+            {
+                _title = message;
+                _stage = 4;
+                _progress = completed;
+                _total = total;
+                _unit = " files";
+            });
+
+        if (!updateFinished || !updateSucceeded)
+        {
+            FailDataSetup(updateError ?? "The Echo asset update did not complete.");
+            yield break;
+        }
+
+        SetProgress("Data ready!", StageTotal, 1, "");
+        _progress = _total;
 
 #if UNITY_ANDROID && !UNITY_EDITOR
         try
         {
-            File.WriteAllText(Path.Combine(extractPath, ".quest_evr_data_ready"), EvrVersion);
+            File.WriteAllText(
+                Path.Combine(GetDataExtractPath(), ".quest_evr_data_ready"),
+                EvrVersion);
         }
         catch (Exception e)
         {
@@ -314,8 +436,11 @@ public class Download : MonoBehaviour
         }
 #endif
 
+        if (!updateManager.FinalizePendingInstall(out string markerError))
+            Debug.LogWarning($"[Download] Could not write install version marker: {markerError}");
+
         if (afterInstallController == null)
-            afterInstallController = FindObjectOfType<AfterInstallController>();
+            afterInstallController = FindFirstObjectByType<AfterInstallController>();
 
         afterInstallController?.NotifyDataReady();
     }
@@ -323,6 +448,22 @@ public class Download : MonoBehaviour
     #endregion
 
     #region Utilities
+
+    private void InitializePaths()
+    {
+        if (_pathsInitialized)
+            return;
+
+        DownloadFileName = DownloadFileName.Replace("${EvrV}", EvrVersion);
+        if (ServerData != null)
+            ServerData.text = ServerData.text.Replace("${evrV}", EvrVersion);
+
+        if (string.IsNullOrWhiteSpace(DownloadDirectory))
+            DownloadDirectory = Application.persistentDataPath;
+
+        _downloadedZipPath = Path.Combine(DownloadDirectory, DownloadFileName);
+        _pathsInitialized = true;
+    }
 
     private void SetProgress(string title, int stage, int total, string unit)
     {
@@ -343,6 +484,108 @@ public class Download : MonoBehaviour
             size = 0;
 
         onComplete?.Invoke(size);
+    }
+
+    private void FailDataSetup(string error)
+    {
+        _title = "Data setup failed";
+        _lastError = error;
+        _extractionStarted = false;
+        Debug.LogError("[Download] " + error);
+
+        if (afterInstallController == null)
+            afterInstallController = FindFirstObjectByType<AfterInstallController>();
+
+        afterInstallController?.NotifyDataSetupFailed(error);
+    }
+
+    private static bool TryResolveZipEntryPath(
+        string extractionRoot,
+        string entryName,
+        out string resolved)
+    {
+        resolved = null;
+        string candidateEntry = (entryName ?? string.Empty)
+            .Replace('\\', '/')
+            .TrimEnd('/');
+
+        if (candidateEntry.Length == 0)
+            return false;
+
+        if (!QuestUpdateManifest.TryNormalizeRelativePath(
+                candidateEntry,
+                out string normalized))
+            return false;
+
+        string fullRoot = Path.GetFullPath(extractionRoot).TrimEnd(
+            Path.DirectorySeparatorChar,
+            Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        string fullPath = Path.GetFullPath(Path.Combine(
+            fullRoot,
+            normalized.Replace('/', Path.DirectorySeparatorChar)));
+
+        if (!fullPath.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        resolved = fullPath;
+        return true;
+    }
+
+    private static bool TryReplaceDownloadedFile(
+        string source,
+        string destination,
+        out string error)
+    {
+        error = null;
+        string backup = destination + ".backup";
+
+        try
+        {
+            if (File.Exists(backup))
+                File.Delete(backup);
+            if (File.Exists(destination))
+                File.Move(destination, backup);
+
+            try
+            {
+                File.Move(source, destination);
+                if (File.Exists(backup))
+                    File.Delete(backup);
+                return true;
+            }
+            catch
+            {
+                if (!File.Exists(destination) && File.Exists(backup))
+                    File.Move(backup, destination);
+                throw;
+            }
+        }
+        catch (Exception exception)
+        {
+            error = exception.Message;
+            return false;
+        }
+    }
+
+    private void ClearDataReadyMarker()
+    {
+        PlayerPrefs.SetInt("EchoDataExtractionComplete", 0);
+        PlayerPrefs.Save();
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+        try
+        {
+            string marker = Path.Combine(
+                GetDataExtractPath(),
+                ".quest_evr_data_ready");
+            if (File.Exists(marker))
+                File.Delete(marker);
+        }
+        catch (Exception exception)
+        {
+            Debug.LogWarning($"[Download] Could not clear old data marker: {exception.Message}");
+        }
+#endif
     }
 
     #endregion

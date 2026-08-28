@@ -72,6 +72,38 @@ public class AfterInstallController : MonoBehaviour
         }
     }
 
+    public bool HandleExistingInstallIfPresent()
+    {
+        if (!IsEchoInstalled())
+            return false;
+
+        _dataReady = PlayerPrefs.GetInt(DataReadyPreference, 0) == 1 || DataMarkerExists();
+        if (_dataReady)
+        {
+            RefreshState();
+            return true;
+        }
+
+        if (dataDownloader == null)
+            dataDownloader = FindFirstObjectByType<Download>(FindObjectsInactive.Include);
+
+        if (dataDownloader != null && dataDownloader.HasDownloadedDataZip())
+        {
+            _dataDownloaded = true;
+            RefreshState();
+        }
+        else
+        {
+            if (afterInstallPanel != null)
+                afterInstallPanel.SetActive(false);
+
+            SetDownloadPanelVisible(true);
+            SetStatus("Echo VR is installed. Downloading the missing game data...");
+        }
+
+        return true;
+    }
+
     public void NotifyInstallFlowStarted()
     {
         _installFlowStarted = true;
@@ -89,13 +121,30 @@ public class AfterInstallController : MonoBehaviour
     public void NotifyDataDownloaded()
     {
         _dataDownloaded = true;
+        _dataReady = false;
+        PlayerPrefs.SetInt(DataReadyPreference, 0);
+        PlayerPrefs.Save();
         RefreshState();
+    }
+
+    public void NotifyDataSetupFailed(string error)
+    {
+        _dataReady = false;
+
+        if (afterInstallPanel != null)
+            afterInstallPanel.SetActive(true);
+
+        SetButtonMode(showExtract: true, showFinalActions: false);
+        if (extractDataButton != null)
+            extractDataButton.interactable = true;
+
+        SetStatus("Echo data setup failed. Select Extract Data to retry.\n" + error);
     }
 
     public void ExtractGameData()
     {
         if (dataDownloader == null)
-            dataDownloader = FindObjectOfType<Download>();
+            dataDownloader = FindFirstObjectByType<Download>();
 
         if (dataDownloader == null)
         {
@@ -292,6 +341,11 @@ public class AfterInstallController : MonoBehaviour
     {
         if (downloadPanel == null)
             return;
+
+        // Download owns the extraction coroutine, so the panel object must be
+        // active even when its visuals are hidden behind the after-install UI.
+        if (!downloadPanel.activeSelf)
+            downloadPanel.SetActive(true);
 
         if (_downloadCanvasGroup == null)
         {
