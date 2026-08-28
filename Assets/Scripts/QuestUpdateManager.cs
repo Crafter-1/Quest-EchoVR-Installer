@@ -36,6 +36,12 @@ public class QuestUpdateManager : MonoBehaviour
             StartCoroutine(FetchManifest());
     }
 
+    public void RefreshManifest(Action<bool, string> onComplete)
+    {
+        CurrentManifest = null;
+        EnsureManifest(onComplete);
+    }
+
     public IEnumerator SynchronizeAssets(
         Action<bool, string> onComplete,
         Action<string, int, int> onProgress = null)
@@ -193,7 +199,15 @@ public class QuestUpdateManager : MonoBehaviour
 
     public bool FinalizePendingInstall(out string error)
     {
-        return InstallVersionMarker.FinalizePending(GetTargetRoot(), out error);
+        return InstallVersionMarker.FinalizePending(
+            GetTargetRoot(),
+            GetInstalledEchoVersionCode(),
+            out error);
+    }
+
+    public bool TryGetInstalledMarker(out InstallVersionMarkerData marker)
+    {
+        return InstallVersionMarker.TryReadFinal(GetTargetRoot(), out marker);
     }
 
     public bool IsManifestBaseApkInstalled()
@@ -221,6 +235,28 @@ public class QuestUpdateManager : MonoBehaviour
             "https://files.echovr.de/" + fileName,
             "https://evr.echo.taxi/" + fileName
         };
+    }
+
+    public static int GetInstalledEchoVersionCode()
+    {
+#if UNITY_ANDROID && !UNITY_EDITOR
+        try
+        {
+            using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+            using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
+            using (var packageManager = activity.Call<AndroidJavaObject>("getPackageManager"))
+            using (var packageInfo = packageManager.Call<AndroidJavaObject>(
+                       "getPackageInfo", EchoPackageName, 0))
+                return packageInfo == null ? 0 : packageInfo.Get<int>("versionCode");
+        }
+        catch (Exception exception)
+        {
+            Debug.LogWarning($"[QuestUpdateManager] Could not read Echo version code: {exception.Message}");
+            return 0;
+        }
+#else
+        return 0;
+#endif
     }
 
     private IEnumerator FetchManifest()

@@ -25,6 +25,9 @@ public class InstallMenuController : MonoBehaviour
 }
 
     private static readonly Regex UrlPattern = new Regex(@"https?://[^\s]+", RegexOptions.IgnoreCase);
+    private bool _patchedUpdateMode;
+    private QuestUpdateManifest _pendingUpdateManifest;
+    private AfterInstallController _afterInstallController;
 
     // Called by Button_Legacy's OnClick
     public void OnSelectLegacy()
@@ -83,6 +86,26 @@ public class InstallMenuController : MonoBehaviour
         }
 
         ClearError();
+
+        if (_patchedUpdateMode)
+        {
+            if (_afterInstallController == null)
+                _afterInstallController = FindFirstObjectByType<AfterInstallController>();
+
+            if (_afterInstallController == null)
+            {
+                ShowError("Could not find the update controller.");
+                return;
+            }
+
+            patchedInputPanel.SetActive(false);
+            _patchedUpdateMode = false;
+            QuestUpdateManifest updateManifest = _pendingUpdateManifest;
+            _pendingUpdateManifest = null;
+            _afterInstallController.BeginPatchedApkUpdate(extractedUrl, updateManifest);
+            return;
+        }
+
         QuestUpdateManager manager = GetUpdateManager();
         patchedInputPanel.SetActive(false);
         downloadPanel.SetActive(true);
@@ -120,8 +143,39 @@ public class InstallMenuController : MonoBehaviour
     // Optional: back button from the patched input screen to main menu
     public void OnBackToMenu()
     {
+        if (_patchedUpdateMode)
+        {
+            _patchedUpdateMode = false;
+            _pendingUpdateManifest = null;
+            patchedInputPanel.SetActive(false);
+
+            if (_afterInstallController == null)
+                _afterInstallController = FindFirstObjectByType<AfterInstallController>();
+
+            _afterInstallController?.CancelPatchedUpdate();
+            ClearError();
+            return;
+        }
+
         patchedInputPanel.SetActive(false);
         mainMenuPanel.SetActive(true);
+        ClearError();
+    }
+
+    public void BeginPatchedUpdate(QuestUpdateManifest manifest)
+    {
+        _patchedUpdateMode = true;
+        _pendingUpdateManifest = manifest;
+
+        if (mainMenuPanel != null)
+            mainMenuPanel.SetActive(false);
+        if (downloadPanel != null)
+            downloadPanel.SetActive(false);
+        if (patchedInputPanel != null)
+            patchedInputPanel.SetActive(true);
+        if (messageInput != null)
+            messageInput.text = string.Empty;
+
         ClearError();
     }
 

@@ -12,6 +12,7 @@ public sealed class InstallVersionMarkerData
     public string InstalledAt;
     public string InstallerVersion;
     public bool Trusted;
+    public int PackageVersionCode;
 }
 
 public static class InstallVersionMarker
@@ -27,6 +28,7 @@ public static class InstallVersionMarker
         string installedSha256,
         bool patched,
         bool trusted,
+        int packageVersionCode,
         out string error)
     {
         var data = new InstallVersionMarkerData
@@ -39,13 +41,17 @@ public static class InstallVersionMarker
             InstallerVersion = string.IsNullOrWhiteSpace(Application.version)
                 ? "unknown"
                 : Application.version,
-            Trusted = trusted
+            Trusted = trusted,
+            PackageVersionCode = packageVersionCode
         };
 
         return WriteAtomic(PendingPath, Serialize(data, includeTrusted: true), out error);
     }
 
-    public static bool FinalizePending(string targetRoot, out string error)
+    public static bool FinalizePending(
+        string targetRoot,
+        int installedPackageVersionCode,
+        out string error)
     {
         error = null;
         if (!TryRead(PendingPath, out InstallVersionMarkerData data))
@@ -56,6 +62,13 @@ public static class InstallVersionMarker
         // supplied format and create the final marker.
         if (!data.Trusted)
             return true;
+
+        if (data.PackageVersionCode > 0 &&
+            installedPackageVersionCode != data.PackageVersionCode)
+        {
+            error = "The installed Echo APK does not match the downloaded update.";
+            return false;
+        }
 
         data.InstalledAt = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'");
 
@@ -78,6 +91,11 @@ public static class InstallVersionMarker
     public static bool TryReadFinal(string targetRoot, out InstallVersionMarkerData data)
     {
         return TryRead(Path.Combine(targetRoot, MarkerFileName), out data);
+    }
+
+    public static bool TryReadPending(out InstallVersionMarkerData data)
+    {
+        return TryRead(PendingPath, out data);
     }
 
     private static bool TryRead(string path, out InstallVersionMarkerData data)
@@ -118,7 +136,13 @@ public static class InstallVersionMarker
                 InstallerVersion = values.TryGetValue("installer_version", out string version)
                     ? version : string.Empty,
                 Trusted = !values.TryGetValue("trusted", out string trusted) ||
-                          !bool.TryParse(trusted, out bool isTrusted) || isTrusted
+                          !bool.TryParse(trusted, out bool isTrusted) || isTrusted,
+                PackageVersionCode = values.TryGetValue(
+                                         "package_version_code",
+                                         out string packageVersion) &&
+                                     int.TryParse(packageVersion, out int parsedVersion)
+                    ? parsedVersion
+                    : 0
             };
             return true;
         }
@@ -141,7 +165,10 @@ public static class InstallVersionMarker
             $"installer_version={Sanitize(data.InstallerVersion)}\n";
 
         if (includeTrusted)
+        {
             text += $"trusted={data.Trusted.ToString().ToLowerInvariant()}\n";
+            text += $"package_version_code={data.PackageVersionCode}\n";
+        }
 
         return text;
     }

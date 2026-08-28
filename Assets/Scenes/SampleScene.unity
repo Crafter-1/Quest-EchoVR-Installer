@@ -922,8 +922,8 @@ MonoBehaviour:
   downloadPanel: {fileID: 854633377}
   messageInput: {fileID: 964960758}
   errorText: {fileID: 1337357482}
-  legacyApkUrl: http://files.echovr.de/echo_quest_16-07-2026.001.apk
   installer: {fileID: 1212432195}
+  updateManager: {fileID: 0}
   discordUrl: https://discord.gg/Rs8CQvjDv
 --- !u!1 &105582895
 GameObject:
@@ -1376,6 +1376,7 @@ MonoBehaviour:
   ServerData: {fileID: 937207483}
   afterInstallController: {fileID: 10882373}
   apkInstaller: {fileID: 1212432195}
+  updateManager: {fileID: 0}
   ServerLocations:
   - https://evr.echo.taxi
   - https://files.echovr.de
@@ -1676,8 +1677,8 @@ MonoBehaviour:
   downloadPanel: {fileID: 854633377}
   messageInput: {fileID: 964960758}
   errorText: {fileID: 1337357482}
-  legacyApkUrl: http://files.echovr.de/echo_quest_16-07-2026.001.apk
   installer: {fileID: 854633379}
+  updateManager: {fileID: 0}
   discordUrl: https://discord.gg/Rs8CQvjDv
 --- !u!1 &298910382
 GameObject:
@@ -8985,7 +8986,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -333, y: -268}
+  m_AnchoredPosition: {x: -396, y: -268}
   m_SizeDelta: {x: 415.7, y: 111.3}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1833535071
@@ -9829,7 +9830,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 446, y: -265.89996}
+  m_AnchoredPosition: {x: 486, y: -265.89996}
   m_SizeDelta: {x: 415.7, y: 111.2}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1980039915

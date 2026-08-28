@@ -17,11 +17,13 @@ public class ApkInstaller : MonoBehaviour
     private bool _apkDownloadReady;
     private bool _dataDownloadReady;
     private bool _installStarted;
+    private bool _apkOnlyUpdate;
+    private int _pendingPackageVersionCode;
 
     // Kept for callers that do not use the update manifest.
     public void DownloadAndInstallFromUrl(string url)
     {
-        BeginDownload(new[] { url }, null, null, patched: false);
+        BeginDownload(new[] { url }, null, null, patched: false, apkOnlyUpdate: false);
     }
 
     public void DownloadAndInstallFromManifest(
@@ -38,14 +40,42 @@ public class ApkInstaller : MonoBehaviour
             mirrors,
             manifest.BaseApkSha256,
             manifest,
-            patched: false);
+            patched: false,
+            apkOnlyUpdate: false);
     }
 
     public void DownloadAndInstallPatchedFromUrl(
         string url,
         QuestUpdateManifest manifest)
     {
-        BeginDownload(new[] { url }, null, manifest, patched: true);
+        BeginDownload(
+            new[] { url }, null, manifest, patched: true, apkOnlyUpdate: false);
+    }
+
+    public void DownloadAndInstallUpdateFromManifest(
+        QuestUpdateManifest manifest,
+        string[] mirrors)
+    {
+        if (manifest == null)
+        {
+            SetStatus("APK update failed: the update manifest is missing.");
+            return;
+        }
+
+        BeginDownload(
+            mirrors,
+            manifest.BaseApkSha256,
+            manifest,
+            patched: false,
+            apkOnlyUpdate: true);
+    }
+
+    public void DownloadAndInstallPatchedUpdateFromUrl(
+        string url,
+        QuestUpdateManifest manifest)
+    {
+        BeginDownload(
+            new[] { url }, null, manifest, patched: true, apkOnlyUpdate: true);
     }
 
     public void SetStatusMessage(string message)
@@ -82,11 +112,25 @@ public class ApkInstaller : MonoBehaviour
 #endif
     }
 
+    public bool IsPendingApkInstalled()
+    {
+        int expectedVersion = _pendingPackageVersionCode;
+        if (expectedVersion <= 0 &&
+            InstallVersionMarker.TryReadPending(out InstallVersionMarkerData pending))
+            expectedVersion = pending.PackageVersionCode;
+
+        int installedVersion = QuestUpdateManager.GetInstalledEchoVersionCode();
+        return expectedVersion <= 0
+            ? IsEchoVrInstalled()
+            : installedVersion == expectedVersion;
+    }
+
     private void BeginDownload(
         string[] urls,
         string expectedSha256,
         QuestUpdateManifest manifest,
-        bool patched)
+        bool patched,
+        bool apkOnlyUpdate)
     {
         if (urls == null || urls.Length == 0)
         {
@@ -97,6 +141,10 @@ public class ApkInstaller : MonoBehaviour
         _apkDownloadReady = false;
         _installStarted = false;
         _pendingApkPath = null;
+        _pendingPackageVersionCode = 0;
+        _apkOnlyUpdate = apkOnlyUpdate;
+        if (apkOnlyUpdate)
+            _dataDownloadReady = true;
         StartCoroutine(DownloadAndInstall(urls, expectedSha256, manifest, patched));
     }
 
@@ -234,7 +282,10 @@ public class ApkInstaller : MonoBehaviour
             }
         }
 
-        if (!IsEchoVrApk(savePath, out string apkValidationError))
+        if (!IsEchoVrApk(
+                savePath,
+                out string apkValidationError,
+                out _pendingPackageVersionCode))
         {
             SetStatus("APK verification failed: " + apkValidationError);
             yield break;
@@ -246,7 +297,8 @@ public class ApkInstaller : MonoBehaviour
                 downloadedSha256,
                 patched,
                 trusted: true,
-                out string markerError))
+                packageVersionCode: _pendingPackageVersionCode,
+                error: out string markerError))
         {
             // The APK and its SHA are valid, so marker failure should be visible
             // but should not prevent installation.
@@ -255,7 +307,9 @@ public class ApkInstaller : MonoBehaviour
 
         _pendingApkPath = savePath;
         _apkDownloadReady = true;
-        SetStatus("APK downloaded and verified. Waiting for game data download...");
+        SetStatus(_apkOnlyUpdate
+            ? "APK update downloaded and verified. Opening Android installer..."
+            : "APK downloaded and verified. Waiting for game data download...");
         TryBeginInstall();
     }
 
@@ -326,9 +380,13 @@ public class ApkInstaller : MonoBehaviour
         return true;
     }
 
-    private static bool IsEchoVrApk(string apkPath, out string error)
+    private static bool IsEchoVrApk(
+        string apkPath,
+        out string error,
+        out int packageVersionCode)
     {
         error = null;
+        packageVersionCode = 0;
 #if UNITY_ANDROID && !UNITY_EDITOR
         try
         {
@@ -345,6 +403,7 @@ public class ApkInstaller : MonoBehaviour
                 }
 
                 string packageName = packageInfo.Get<string>("packageName");
+                packageVersionCode = packageInfo.Get<int>("versionCode");
                 if (!string.Equals(
                         packageName,
                         QuestUpdateManager.EchoPackageName,
