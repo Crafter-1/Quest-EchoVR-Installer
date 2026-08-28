@@ -110,10 +110,17 @@ public class StoragePermissionGate : MonoBehaviour
         if (permissionPanel != null)
             permissionPanel.SetActive(false);
 
-        if (mainMenuPanel != null)
-            mainMenuPanel.SetActive(true);
+        AfterInstallController afterInstallController =
+            FindFirstObjectByType<AfterInstallController>();
+        bool existingInstallHandled = afterInstallController != null &&
+                                      afterInstallController.HandleExistingInstallIfPresent();
 
-        SetStatus("Storage access granted.");
+        if (mainMenuPanel != null)
+            mainMenuPanel.SetActive(!existingInstallHandled);
+
+        SetStatus(existingInstallHandled
+            ? "Existing Echo VR installation found."
+            : "Storage access granted.");
     }
 
     private void SetStatus(string message)
