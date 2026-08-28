@@ -27,11 +27,21 @@ public class AfterInstallController : MonoBehaviour
     private bool _dataReady;
     private bool _openingEchoSettings;
     private CanvasGroup _downloadCanvasGroup;
+    private bool _centerButtonChecksUpdates;
+    private bool _updateCheckRunning;
+    private bool _apkUpdateInProgress;
+    private TMP_Text _centerButtonLabel;
+    private QuestUpdateManager _updateManager;
+    private ApkInstaller _apkInstaller;
+    private InstallMenuController _installMenuController;
 
     private void Start()
     {
         if (extractDataButton != null)
-            extractDataButton.onClick.AddListener(ExtractGameData);
+        {
+            extractDataButton.onClick.AddListener(HandleCenterButton);
+            _centerButtonLabel = extractDataButton.GetComponentInChildren<TMP_Text>(true);
+        }
 
         if (openEchoPermissionsButton != null)
             openEchoPermissionsButton.onClick.AddListener(OpenEchoPermissions);
@@ -49,7 +59,7 @@ public class AfterInstallController : MonoBehaviour
     private void OnDestroy()
     {
         if (extractDataButton != null)
-            extractDataButton.onClick.RemoveListener(ExtractGameData);
+            extractDataButton.onClick.RemoveListener(HandleCenterButton);
 
         if (openEchoPermissionsButton != null)
             openEchoPermissionsButton.onClick.RemoveListener(OpenEchoPermissions);
@@ -63,13 +73,266 @@ public class AfterInstallController : MonoBehaviour
         // The Android package installer temporarily takes focus away from Unity.
         if (hasFocus && (_installFlowStarted || _openingEchoSettings))
         {
+            bool returnedFromInstall = _installFlowStarted;
+            _installFlowStarted = false;
             _openingEchoSettings = false;
 
             if (launchEchoVrButton != null)
                 launchEchoVrButton.interactable = true;
 
-            RefreshState();
+            if (returnedFromInstall && _apkUpdateInProgress)
+                StartCoroutine(CompleteApkUpdateAfterReturn());
+            else
+                RefreshState();
         }
+    }
+
+    private void HandleCenterButton()
+    {
+        if (_centerButtonChecksUpdates)
+            CheckForUpdates();
+        else
+            ExtractGameData();
+    }
+
+    public void CheckForUpdates()
+    {
+        if (_updateCheckRunning)
+            return;
+
+        StartCoroutine(CheckForUpdatesRoutine());
+    }
+
+    private System.Collections.IEnumerator CheckForUpdatesRoutine()
+    {
+        SetUpdateBusy(true, "[CHECKING...]");
+        SetStatus("Checking for Echo VR updates...");
+
+        QuestUpdateManager manager = GetUpdateManager();
+        bool manifestFinished = false;
+        bool manifestSucceeded = false;
+        string manifestError = null;
+        manager.RefreshManifest((success, error) =>
+        {
+            manifestSucceeded = success;
+            manifestError = error;
+            manifestFinished = true;
+        });
+
+        yield return new WaitUntil(() => manifestFinished);
+        if (!manifestSucceeded)
+        {
+            FinishUpdateWithError(manifestError ?? "Could not check for updates.");
+            yield break;
+        }
+
+        if (!manager.TryGetInstalledMarker(out InstallVersionMarkerData marker))
+        {
+            FinishUpdateWithError(
+                "This installation has no version marker, so its APK cannot be updated safely.");
+            yield break;
+        }
+
+        bool apkAlreadyCurrent = string.Equals(
+            marker.BaseSha256,
+            manager.CurrentManifest.BaseApkSha256,
+            StringComparison.OrdinalIgnoreCase);
+
+        if (apkAlreadyCurrent)
+        {
+            yield return SynchronizeUpdateAssets(
+                finalizeInstallMarker: false,
+                successMessage: "Echo VR is up to date. All update assets were verified.");
+            yield break;
+        }
+
+        if (marker.Patched)
+        {
+            _installMenuController = FindFirstObjectByType<InstallMenuController>();
+            if (_installMenuController == null)
+            {
+                FinishUpdateWithError("Could not open the patched APK update screen.");
+                yield break;
+            }
+
+            SetStatus("A new Echo APK is available. Paste its patched APK link to continue.");
+            if (afterInstallPanel != null)
+                afterInstallPanel.SetActive(false);
+
+            _installMenuController.BeginPatchedUpdate(manager.CurrentManifest);
+            yield break;
+        }
+
+        BeginLegacyApkUpdate(manager.CurrentManifest);
+    }
+
+    private void BeginLegacyApkUpdate(QuestUpdateManifest manifest)
+    {
+        ApkInstaller installer = GetApkInstaller();
+        if (installer == null)
+        {
+            FinishUpdateWithError("Could not find the APK installer.");
+            return;
+        }
+
+        BeginApkUpdateDisplay();
+        installer.DownloadAndInstallUpdateFromManifest(
+            manifest,
+            GetUpdateManager().GetBaseApkMirrors());
+    }
+
+    public void BeginPatchedApkUpdate(
+        string apkUrl,
+        QuestUpdateManifest manifest)
+    {
+        ApkInstaller installer = GetApkInstaller();
+        if (installer == null)
+        {
+            CancelPatchedUpdate("Could not find the APK installer.");
+            return;
+        }
+
+        BeginApkUpdateDisplay();
+        installer.DownloadAndInstallPatchedUpdateFromUrl(apkUrl, manifest);
+    }
+
+    public void CancelPatchedUpdate(string message = null)
+    {
+        _apkUpdateInProgress = false;
+        SetUpdateBusy(false);
+
+        if (afterInstallPanel != null)
+            afterInstallPanel.SetActive(true);
+
+        RefreshState();
+        if (!string.IsNullOrWhiteSpace(message))
+            SetStatus(message);
+    }
+
+    private void BeginApkUpdateDisplay()
+    {
+        _apkUpdateInProgress = true;
+        _updateCheckRunning = true;
+
+        if (dataDownloader == null)
+            dataDownloader = FindFirstObjectByType<Download>(FindObjectsInactive.Include);
+
+        dataDownloader?.PrepareForApkOnlyUpdateDisplay();
+
+        if (afterInstallPanel != null)
+            afterInstallPanel.SetActive(false);
+
+        SetDownloadPanelVisible(true);
+    }
+
+    private System.Collections.IEnumerator CompleteApkUpdateAfterReturn()
+    {
+        if (downloadPanel != null)
+            downloadPanel.SetActive(false);
+
+        if (afterInstallPanel != null)
+            afterInstallPanel.SetActive(true);
+
+        ApkInstaller installer = GetApkInstaller();
+        if (installer == null || !installer.IsPendingApkInstalled())
+        {
+            _apkUpdateInProgress = false;
+            FinishUpdateWithError(
+                "The APK update was not installed. You can select Check for Updates to retry.");
+            yield break;
+        }
+
+        yield return SynchronizeUpdateAssets(
+            finalizeInstallMarker: true,
+            successMessage: "Echo VR and its update assets are now up to date.");
+    }
+
+    private System.Collections.IEnumerator SynchronizeUpdateAssets(
+        bool finalizeInstallMarker,
+        string successMessage)
+    {
+        QuestUpdateManager manager = GetUpdateManager();
+        bool finished = false;
+        bool succeeded = false;
+        string updateError = null;
+
+        yield return manager.SynchronizeAssets(
+            (success, error) =>
+            {
+                succeeded = success;
+                updateError = error;
+                finished = true;
+            },
+            (message, completed, total) =>
+                SetStatus(total > 0
+                    ? $"{message}\n{completed}/{total} files"
+                    : message));
+
+        if (!finished || !succeeded)
+        {
+            _apkUpdateInProgress = false;
+            FinishUpdateWithError(updateError ?? "The update did not complete.");
+            yield break;
+        }
+
+        if (finalizeInstallMarker &&
+            !manager.FinalizePendingInstall(out string markerError))
+        {
+            _apkUpdateInProgress = false;
+            FinishUpdateWithError("Update installed, but version tracking failed: " + markerError);
+            yield break;
+        }
+
+        _apkUpdateInProgress = false;
+        SetUpdateBusy(false);
+        RefreshState();
+        SetStatus(successMessage);
+    }
+
+    private void FinishUpdateWithError(string message)
+    {
+        SetUpdateBusy(false);
+
+        if (afterInstallPanel != null)
+            afterInstallPanel.SetActive(true);
+
+        RefreshState();
+        SetStatus(message);
+    }
+
+    private void SetUpdateBusy(bool busy, string centerLabel = null)
+    {
+        _updateCheckRunning = busy;
+
+        if (extractDataButton != null)
+            extractDataButton.interactable = !busy;
+        if (openEchoPermissionsButton != null)
+            openEchoPermissionsButton.interactable = !busy;
+        if (launchEchoVrButton != null)
+            launchEchoVrButton.interactable = !busy;
+
+        if (_centerButtonLabel != null)
+            _centerButtonLabel.text = centerLabel ??
+                                      (_centerButtonChecksUpdates
+                                          ? "[CHECK FOR UPDATES]"
+                                          : "[EXTRACT DATA]");
+    }
+
+    private QuestUpdateManager GetUpdateManager()
+    {
+        if (_updateManager == null)
+            _updateManager = FindFirstObjectByType<QuestUpdateManager>();
+        if (_updateManager == null)
+            _updateManager = gameObject.AddComponent<QuestUpdateManager>();
+
+        return _updateManager;
+    }
+
+    private ApkInstaller GetApkInstaller()
+    {
+        if (_apkInstaller == null)
+            _apkInstaller = FindFirstObjectByType<ApkInstaller>(FindObjectsInactive.Include);
+        return _apkInstaller;
     }
 
     public bool HandleExistingInstallIfPresent()
@@ -326,15 +589,28 @@ public class AfterInstallController : MonoBehaviour
     {
         if (extractDataButton != null)
         {
-            extractDataButton.gameObject.SetActive(showExtract);
-            extractDataButton.interactable = showExtract;
+            bool showCenterButton = showExtract || showFinalActions;
+            _centerButtonChecksUpdates = !showExtract && showFinalActions;
+            extractDataButton.gameObject.SetActive(showCenterButton);
+            extractDataButton.interactable = showCenterButton && !_updateCheckRunning;
+
+            if (_centerButtonLabel != null && !_updateCheckRunning)
+                _centerButtonLabel.text = _centerButtonChecksUpdates
+                    ? "[CHECK FOR UPDATES]"
+                    : "[EXTRACT DATA]";
         }
 
         if (openEchoPermissionsButton != null)
+        {
             openEchoPermissionsButton.gameObject.SetActive(showFinalActions);
+            openEchoPermissionsButton.interactable = showFinalActions && !_updateCheckRunning;
+        }
 
         if (launchEchoVrButton != null)
+        {
             launchEchoVrButton.gameObject.SetActive(showFinalActions);
+            launchEchoVrButton.interactable = showFinalActions && !_updateCheckRunning;
+        }
     }
 
     private void SetDownloadPanelVisible(bool visible)

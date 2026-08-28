@@ -44,10 +44,17 @@ public class Download : MonoBehaviour
     private bool _extractionStarted;
     private bool _extractionComplete;
     private bool _pathsInitialized;
+    private bool _suppressAutomaticDataDownload;
 
     public void Start()
     {
         InitializePaths();
+
+        if (_suppressAutomaticDataDownload)
+        {
+            SetProgress("Updating Echo APK", 2, 1, "");
+            return;
+        }
 
         // Recovery path: a completed ZIP survives if the user leaves after
         // installing the APK but before pressing Extract Data.
@@ -77,6 +84,11 @@ public class Download : MonoBehaviour
         InitializePaths();
         _downloadedZipPath = Path.Combine(DownloadDirectory, DownloadFileName);
         return File.Exists(_downloadedZipPath);
+    }
+
+    public void PrepareForApkOnlyUpdateDisplay()
+    {
+        _suppressAutomaticDataDownload = true;
     }
 
     public void FixedUpdate()
