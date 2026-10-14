@@ -23,6 +23,7 @@ public class ApkInstaller : MonoBehaviour
     // Kept for callers that do not use the update manifest.
     public void DownloadAndInstallFromUrl(string url)
     {
+        InstallerLog.Mark("APK_INSTALL_REQUEST", "url=" + url);
         BeginDownload(new[] { url }, null, null, patched: false, apkOnlyUpdate: false);
     }
 
@@ -30,6 +31,7 @@ public class ApkInstaller : MonoBehaviour
         QuestUpdateManifest manifest,
         string[] mirrors)
     {
+        InstallerLog.Mark("APK_INSTALL_REQUEST", "mode=legacy");
         if (manifest == null)
         {
             SetStatus("APK download failed: the update manifest is missing.");
@@ -48,6 +50,7 @@ public class ApkInstaller : MonoBehaviour
         string url,
         QuestUpdateManifest manifest)
     {
+        InstallerLog.Mark("APK_INSTALL_REQUEST", "mode=patched | url=" + url);
         BeginDownload(
             new[] { url }, null, manifest, patched: true, apkOnlyUpdate: false);
     }
@@ -56,6 +59,7 @@ public class ApkInstaller : MonoBehaviour
         QuestUpdateManifest manifest,
         string[] mirrors)
     {
+        InstallerLog.Mark("APK_UPDATE_REQUEST", "mode=legacy");
         if (manifest == null)
         {
             SetStatus("APK update failed: the update manifest is missing.");
@@ -74,6 +78,7 @@ public class ApkInstaller : MonoBehaviour
         string url,
         QuestUpdateManifest manifest)
     {
+        InstallerLog.Mark("APK_UPDATE_REQUEST", "mode=patched | url=" + url);
         BeginDownload(
             new[] { url }, null, manifest, patched: true, apkOnlyUpdate: true);
     }
@@ -132,6 +137,7 @@ public class ApkInstaller : MonoBehaviour
         bool patched,
         bool apkOnlyUpdate)
     {
+        InstallerLog.Mark("APK_DOWNLOAD_START", "patched=" + patched + " | apkOnly=" + apkOnlyUpdate);
         if (urls == null || urls.Length == 0)
         {
             SetStatus("APK download failed: no download location was supplied.");
@@ -326,6 +332,7 @@ public class ApkInstaller : MonoBehaviour
             return;
 
         _installStarted = true;
+        InstallerLog.Mark("APK_INSTALL_LAUNCH", "path=" + _pendingApkPath);
         SetStatus("Downloads complete. Installing APK...");
         InstallApk(_pendingApkPath);
     }
@@ -476,6 +483,7 @@ public class ApkInstaller : MonoBehaviour
 
     private void InstallApk(string apkPath)
     {
+        InstallerLog.Mark("ANDROID_INSTALL_INTENT", "path=" + apkPath);
 #if UNITY_ANDROID && !UNITY_EDITOR
         if (afterInstallController == null)
             afterInstallController = FindFirstObjectByType<AfterInstallController>();

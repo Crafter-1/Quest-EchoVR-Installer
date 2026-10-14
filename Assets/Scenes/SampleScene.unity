@@ -10445,7 +10445,7 @@ MonoBehaviour:
   pointerFromIndexFingertip: 1
   leftIndexTip: {fileID: 688231563}
   rightIndexTip: {fileID: 2112879554}
-  logPointerDebug: 1
+  logPointerDebug: 0
   alsoMoveOtherPointers: 0
 --- !u!4 &1610214851 stripped
 Transform:

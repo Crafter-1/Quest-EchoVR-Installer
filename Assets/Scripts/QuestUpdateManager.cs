@@ -23,6 +23,7 @@ public class QuestUpdateManager : MonoBehaviour
 
     public void EnsureManifest(Action<bool, string> onComplete)
     {
+        InstallerLog.Mark("MANIFEST_REQUEST", "url=" + manifestUrl);
         if (CurrentManifest != null)
         {
             onComplete?.Invoke(true, null);
@@ -46,6 +47,7 @@ public class QuestUpdateManager : MonoBehaviour
         Action<bool, string> onComplete,
         Action<string, int, int> onProgress = null)
     {
+        InstallerLog.Mark("ASSET_SYNC_START");
         if (CurrentManifest == null)
         {
             bool manifestDone = false;
@@ -160,6 +162,7 @@ public class QuestUpdateManager : MonoBehaviour
 
                 if (request.result != UnityWebRequest.Result.Success)
                 {
+                InstallerLog.Error("ASSET_DOWNLOAD_FAILED | " + entry.AssetPath + " | " + request.error);
                     TryDelete(temporaryPath);
                     onComplete?.Invoke(false,
                         $"Could not download {entry.AssetPath}: {request.error}");
@@ -194,6 +197,7 @@ public class QuestUpdateManager : MonoBehaviour
         }
 
         onProgress?.Invoke("Echo updates ready", total, total);
+        InstallerLog.Mark("ASSET_SYNC_COMPLETE", "entries=" + total);
         onComplete?.Invoke(true, null);
     }
 
@@ -261,6 +265,7 @@ public class QuestUpdateManager : MonoBehaviour
 
     private IEnumerator FetchManifest()
     {
+        InstallerLog.Mark("MANIFEST_FETCH_START", "url=" + manifestUrl);
         _manifestRequestRunning = true;
         bool success = false;
         string error = null;
@@ -272,6 +277,7 @@ public class QuestUpdateManager : MonoBehaviour
 
             if (request.result != UnityWebRequest.Result.Success)
             {
+                InstallerLog.Error("MANIFEST_FETCH_FAILED | " + request.result + " | " + request.error);
                 error = $"Could not download the Echo update manifest: {request.error}";
             }
             else if (!QuestUpdateManifest.TryParse(
@@ -285,6 +291,7 @@ public class QuestUpdateManager : MonoBehaviour
             {
                 CurrentManifest = parsed;
                 success = true;
+                InstallerLog.Mark("MANIFEST_FETCH_SUCCESS", "entries=" + parsed.Entries.Count);
             }
         }
 

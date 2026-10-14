@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.IO;
 using TMPro;
 using UnityEngine;
@@ -34,9 +35,11 @@ public class AfterInstallController : MonoBehaviour
     private QuestUpdateManager _updateManager;
     private ApkInstaller _apkInstaller;
     private InstallMenuController _installMenuController;
+    private Coroutine _installCompletionMonitor;
 
     private void Start()
     {
+        InstallerLog.Mark("AFTER_INSTALL_START");
         if (extractDataButton != null)
         {
             extractDataButton.onClick.AddListener(HandleCenterButton);
@@ -73,18 +76,78 @@ public class AfterInstallController : MonoBehaviour
         // The Android package installer temporarily takes focus away from Unity.
         if (hasFocus && (_installFlowStarted || _openingEchoSettings))
         {
-            bool returnedFromInstall = _installFlowStarted;
-            _installFlowStarted = false;
+            InstallerLog.Mark("UNITY_FOCUS_RETURN", "installPending=" + _installFlowStarted +
+                " | settingsPending=" + _openingEchoSettings);
             _openingEchoSettings = false;
 
             if (launchEchoVrButton != null)
                 launchEchoVrButton.interactable = true;
 
-            if (returnedFromInstall && _apkUpdateInProgress)
-                StartCoroutine(CompleteApkUpdateAfterReturn());
+            if (_installFlowStarted)
+            {
+                if (IsEchoInstalled())
+                    HandleInstallDetected("focus return");
+                else
+                    InstallerLog.Warning("UNITY_FOCUS_RETURN_WITHOUT_ECHO_PACKAGE");
+            }
             else
                 RefreshState();
         }
+    }
+
+    private IEnumerator MonitorInstallCompletion()
+    {
+        const float timeoutSeconds = 90f;
+        const float pollSeconds = 1f;
+        float startedAt = Time.unscaledTime;
+        float nextProgressLog = startedAt;
+
+        while (_installFlowStarted)
+        {
+            if (IsEchoInstalled())
+            {
+                HandleInstallDetected("background monitor");
+                yield break;
+            }
+
+            float elapsed = Time.unscaledTime - startedAt;
+            if (elapsed >= timeoutSeconds)
+            {
+                InstallerLog.Warning("ANDROID_INSTALL_DETECTION_TIMEOUT | seconds=" + timeoutSeconds);
+                _installFlowStarted = false;
+                SetStatus("Android installation was not detected yet. Return to the installer or try again.");
+                RefreshState();
+                yield break;
+            }
+
+            if (Time.unscaledTime >= nextProgressLog)
+            {
+                InstallerLog.Mark("ANDROID_INSTALL_WAITING", "elapsedSeconds=" + Mathf.FloorToInt(elapsed));
+                nextProgressLog = Time.unscaledTime + 10f;
+            }
+
+            yield return new WaitForSecondsRealtime(pollSeconds);
+        }
+    }
+
+    private void HandleInstallDetected(string source)
+    {
+        if (!_installFlowStarted)
+            return;
+
+        InstallerLog.Mark("ANDROID_INSTALL_DETECTED", "source=" + source);
+        _installFlowStarted = false;
+
+        if (_installCompletionMonitor != null)
+        {
+            StopCoroutine(_installCompletionMonitor);
+            _installCompletionMonitor = null;
+        }
+
+        if (_apkUpdateInProgress)
+            StartCoroutine(CompleteApkUpdateAfterReturn());
+        else
+            RefreshState();
     }
 
     private void HandleCenterButton()
@@ -97,6 +160,7 @@ public class AfterInstallController : MonoBehaviour
 
     public void CheckForUpdates()
     {
+        InstallerLog.Mark("UPDATE_CHECK_REQUESTED");
         if (_updateCheckRunning)
             return;
 
@@ -122,6 +186,7 @@ public class AfterInstallController : MonoBehaviour
         yield return new WaitUntil(() => manifestFinished);
         if (!manifestSucceeded)
         {
+            InstallerLog.Error("UPDATE_CHECK_MANIFEST_FAILED | " + manifestError);
             FinishUpdateWithError(manifestError ?? "Could not check for updates.");
             yield break;
         }
@@ -140,6 +205,7 @@ public class AfterInstallController : MonoBehaviour
 
         if (apkAlreadyCurrent)
         {
+            InstallerLog.Mark("UPDATE_APK_CURRENT");
             yield return SynchronizeUpdateAssets(
                 finalizeInstallMarker: false,
                 successMessage: "Echo VR is up to date. All update assets were verified.");
@@ -148,6 +214,7 @@ public class AfterInstallController : MonoBehaviour
 
         if (marker.Patched)
         {
+            InstallerLog.Mark("UPDATE_PATCHED_APK_REQUIRED");
             _installMenuController = FindFirstObjectByType<InstallMenuController>();
             if (_installMenuController == null)
             {
@@ -168,6 +235,7 @@ public class AfterInstallController : MonoBehaviour
 
     private void BeginLegacyApkUpdate(QuestUpdateManifest manifest)
     {
+        InstallerLog.Mark("UPDATE_LEGACY_APK_REQUIRED");
         ApkInstaller installer = GetApkInstaller();
         if (installer == null)
         {
@@ -185,6 +253,7 @@ public class AfterInstallController : MonoBehaviour
         string apkUrl,
         QuestUpdateManifest manifest)
     {
+        InstallerLog.Mark("UPDATE_PATCHED_APK_SUBMITTED");
         ApkInstaller installer = GetApkInstaller();
         if (installer == null)
         {
@@ -227,6 +296,7 @@ public class AfterInstallController : MonoBehaviour
 
     private System.Collections.IEnumerator CompleteApkUpdateAfterReturn()
     {
+        InstallerLog.Mark("APK_UPDATE_RETURNED_FROM_ANDROID");
         if (downloadPanel != null)
             downloadPanel.SetActive(false);
 
@@ -236,6 +306,7 @@ public class AfterInstallController : MonoBehaviour
         ApkInstaller installer = GetApkInstaller();
         if (installer == null || !installer.IsPendingApkInstalled())
         {
+            InstallerLog.Error("APK_UPDATE_NOT_CONFIRMED");
             _apkUpdateInProgress = false;
             FinishUpdateWithError(
                 "The APK update was not installed. You can select Check for Updates to retry.");
@@ -291,6 +362,7 @@ public class AfterInstallController : MonoBehaviour
 
     private void FinishUpdateWithError(string message)
     {
+        InstallerLog.Error("UPDATE_FAILED | " + message);
         SetUpdateBusy(false);
 
         if (afterInstallPanel != null)
@@ -337,6 +409,7 @@ public class AfterInstallController : MonoBehaviour
 
     public bool HandleExistingInstallIfPresent()
     {
+        InstallerLog.Mark("EXISTING_INSTALL_CHECK");
         if (!IsEchoInstalled())
             return false;
 
@@ -369,12 +442,17 @@ public class AfterInstallController : MonoBehaviour
 
     public void NotifyInstallFlowStarted()
     {
+        InstallerLog.Mark("ANDROID_INSTALL_STARTED");
         _installFlowStarted = true;
+        if (_installCompletionMonitor != null)
+            StopCoroutine(_installCompletionMonitor);
+        _installCompletionMonitor = StartCoroutine(MonitorInstallCompletion());
         SetStatus("Complete the Echo VR installation, then return here.");
     }
 
     public void NotifyDataReady()
     {
+        InstallerLog.Mark("DATA_READY_NOTIFIED");
         _dataReady = true;
         PlayerPrefs.SetInt(DataReadyPreference, 1);
         PlayerPrefs.Save();
@@ -383,6 +461,7 @@ public class AfterInstallController : MonoBehaviour
 
     public void NotifyDataDownloaded()
     {
+        InstallerLog.Mark("DATA_DOWNLOADED_NOTIFIED");
         _dataDownloaded = true;
         _dataReady = false;
         PlayerPrefs.SetInt(DataReadyPreference, 0);
@@ -392,6 +471,7 @@ public class AfterInstallController : MonoBehaviour
 
     public void NotifyDataSetupFailed(string error)
     {
+        InstallerLog.Error("DATA_SETUP_FAILURE_NOTIFIED | " + error);
         _dataReady = false;
 
         if (afterInstallPanel != null)
@@ -406,6 +486,7 @@ public class AfterInstallController : MonoBehaviour
 
     public void ExtractGameData()
     {
+        InstallerLog.Mark("EXTRACT_BUTTON_PRESSED");
         if (dataDownloader == null)
             dataDownloader = FindFirstObjectByType<Download>();
 
@@ -424,6 +505,7 @@ public class AfterInstallController : MonoBehaviour
 
     public void OpenEchoPermissions()
     {
+        InstallerLog.Mark("PERMISSIONS_BUTTON_PRESSED");
 #if UNITY_ANDROID && !UNITY_EDITOR
         Debug.Log("[AfterInstallController] OpenEchoPermissions invoked.");
 
@@ -485,6 +567,7 @@ public class AfterInstallController : MonoBehaviour
 
     public void LaunchEchoVr()
     {
+        InstallerLog.Mark("LAUNCH_BUTTON_PRESSED");
 #if UNITY_ANDROID && !UNITY_EDITOR
         Debug.Log("[AfterInstallController] LaunchEchoVr invoked.");
 

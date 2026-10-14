@@ -48,6 +48,7 @@ public class Download : MonoBehaviour
 
     public void Start()
     {
+        InstallerLog.Mark("DOWNLOAD_START", "version=" + EvrVersion);
         InitializePaths();
 
         if (_suppressAutomaticDataDownload)
@@ -88,6 +89,7 @@ public class Download : MonoBehaviour
 
     public void PrepareForApkOnlyUpdateDisplay()
     {
+        InstallerLog.Mark("APK_ONLY_UPDATE_DISPLAY");
         _suppressAutomaticDataDownload = true;
     }
 
@@ -106,6 +108,7 @@ public class Download : MonoBehaviour
 
     private IEnumerator TestServers()
     {
+        InstallerLog.Mark("SERVER_TEST_START", "count=" + (ServerLocations == null ? 0 : ServerLocations.Length));
         SetProgress("Testing servers", 1, ServerLocations.Length, "");
 
         var bestSpeed = 0f;
@@ -193,6 +196,7 @@ public class Download : MonoBehaviour
 
     private IEnumerator DownloadData()
     {
+        InstallerLog.Mark("DATA_DOWNLOAD_START", "url=" + _url);
         var fileSize = 0;
         yield return GetFileSize(_url, size => fileSize = size);
 
@@ -231,6 +235,7 @@ public class Download : MonoBehaviour
 
             if (request.result != UnityWebRequest.Result.Success)
             {
+                InstallerLog.Error("DATA_DOWNLOAD_FAILED | " + request.result + " | " + request.error);
                 _title = "Download failed";
                 _lastError = $"{request.result}: {request.error}";
                 Debug.LogError($"[Download] Data download failed: {request.result} - {request.error} (url: {_url})");
@@ -263,6 +268,7 @@ public class Download : MonoBehaviour
 
     public void ExtractDownloadedData()
     {
+        InstallerLog.Mark("DATA_EXTRACTION_REQUESTED");
         if (_extractionStarted)
             return;
 
@@ -398,6 +404,7 @@ public class Download : MonoBehaviour
 
     private IEnumerator FinishDataSetup()
     {
+        InstallerLog.Mark("DATA_SETUP_FINISH_START");
         if (updateManager == null)
             updateManager = FindFirstObjectByType<QuestUpdateManager>();
 
@@ -427,11 +434,13 @@ public class Download : MonoBehaviour
 
         if (!updateFinished || !updateSucceeded)
         {
+            InstallerLog.Error("DATA_SETUP_UPDATE_FAILED | " + updateError);
             FailDataSetup(updateError ?? "The Echo asset update did not complete.");
             yield break;
         }
 
         SetProgress("Data ready!", StageTotal, 1, "");
+        InstallerLog.Mark("DATA_SETUP_COMPLETE");
         _progress = _total;
 
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -500,6 +509,7 @@ public class Download : MonoBehaviour
 
     private void FailDataSetup(string error)
     {
+        InstallerLog.Error("DATA_SETUP_FAILED | " + error);
         _title = "Data setup failed";
         _lastError = error;
         _extractionStarted = false;

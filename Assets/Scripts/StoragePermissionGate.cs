@@ -16,6 +16,7 @@ public class StoragePermissionGate : MonoBehaviour
 
     private void Start()
     {
+        InstallerLog.Mark("STORAGE_GATE_START");
         if (grantButton != null)
             grantButton.onClick.AddListener(RequestStoragePermission);
 
@@ -39,6 +40,7 @@ public class StoragePermissionGate : MonoBehaviour
 
     public void RequestStoragePermission()
     {
+        InstallerLog.Mark("STORAGE_PERMISSION_REQUESTED");
 #if UNITY_ANDROID && !UNITY_EDITOR
         try
         {
@@ -68,6 +70,7 @@ public class StoragePermissionGate : MonoBehaviour
 
     private void RefreshPermissionState()
     {
+        InstallerLog.Mark("STORAGE_PERMISSION_CHECK");
         if (HasStoragePermission())
             ShowMainMenu();
         else
@@ -94,6 +97,7 @@ public class StoragePermissionGate : MonoBehaviour
 
     private void ShowPermissionPrompt()
     {
+        InstallerLog.Mark("STORAGE_PERMISSION_MISSING");
         if (permissionPanel != null)
             permissionPanel.SetActive(true);
 
@@ -105,6 +109,7 @@ public class StoragePermissionGate : MonoBehaviour
 
     private void ShowMainMenu()
     {
+        InstallerLog.Mark("STORAGE_PERMISSION_GRANTED");
         _gateCompleted = true;
 
         if (permissionPanel != null)
