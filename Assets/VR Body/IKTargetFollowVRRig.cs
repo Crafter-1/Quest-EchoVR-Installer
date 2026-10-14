@@ -90,7 +90,7 @@ public class IKTargetFollowVRRig : MonoBehaviour
     [Tooltip("Right index fingertip. Found automatically (EXP_R1_Index3_end) if empty.")]
     public Transform rightIndexTip;
     [Tooltip("Logs the pointer origin vs fingertip distance once per second. Turn off when done.")]
-    public bool logPointerDebug = true;
+    public bool logPointerDebug = false;
 
     [Tooltip("Also move the poke and distance-grab origins to the fingertip. Off: only the ray interactor is changed.")]
     public bool alsoMoveOtherPointers = false;

@@ -32,6 +32,7 @@ public class InstallMenuController : MonoBehaviour
     // Called by Button_Legacy's OnClick
     public void OnSelectLegacy()
     {
+        InstallerLog.Mark("LEGACY_SELECTION");
         QuestUpdateManager manager = GetUpdateManager();
         mainMenuPanel.SetActive(false);
         downloadPanel.SetActive(true);
@@ -69,6 +70,7 @@ public class InstallMenuController : MonoBehaviour
     // Called by Button_Patched's OnClick
     public void OnSelectPatched()
     {
+        InstallerLog.Mark("PATCHED_SELECTION");
         mainMenuPanel.SetActive(false);
         patchedInputPanel.SetActive(true);
     }
@@ -76,11 +78,13 @@ public class InstallMenuController : MonoBehaviour
     // Called by SubmitButton's OnClick (inside PatchedInputPanel)
     public void OnSubmitPatchedLink()
     {
+        InstallerLog.Mark("PATCHED_LINK_SUBMIT");
         string rawMessage = messageInput.text;
         string extractedUrl = ExtractApkUrl(rawMessage);
 
         if (string.IsNullOrEmpty(extractedUrl))
         {
+            InstallerLog.Warning("PATCHED_LINK_INVALID");
             ShowError("APK download failed. Did you enter the correct link?");
             return;
         }
@@ -143,6 +147,7 @@ public class InstallMenuController : MonoBehaviour
     // Optional: back button from the patched input screen to main menu
     public void OnBackToMenu()
     {
+        InstallerLog.Mark("PATCHED_INPUT_BACK");
         if (_patchedUpdateMode)
         {
             _patchedUpdateMode = false;
@@ -164,6 +169,7 @@ public class InstallMenuController : MonoBehaviour
 
     public void BeginPatchedUpdate(QuestUpdateManifest manifest)
     {
+        InstallerLog.Mark("PATCHED_UPDATE_INPUT_SHOWN");
         _patchedUpdateMode = true;
         _pendingUpdateManifest = manifest;
 
