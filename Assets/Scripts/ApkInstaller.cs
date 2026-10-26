@@ -18,15 +18,21 @@ public class ApkInstaller : MonoBehaviour
     private bool _installStarted;
     private bool _apkOnlyUpdate;
     private int _pendingPackageVersionCode;
+    private bool _replaceOtherSigner;
 
     // Downloads the Quest APK the signed manifest names, checks it against the manifest,
     // then hands it to Android's installer once the game data is ready. `apkOnlyUpdate`
     // skips waiting for the data download.
-    public void DownloadAndInstallSigned(NevrArtifact apk, bool apkOnlyUpdate)
+    // `replaceOtherSigner` is for a headset whose Echo VR is signed by someone else: once the
+    // new APK is downloaded and checked, the player is told, then Android is asked to
+    // uninstall the old one, then the new one is installed.
+    public void DownloadAndInstallSigned(NevrArtifact apk, bool apkOnlyUpdate, bool replaceOtherSigner = false)
     {
         InstallerLog.Mark("APK_INSTALL_REQUEST",
-            "mode=signed | apkOnly=" + apkOnlyUpdate + " | versionCode=" + apk.AndroidVersionCode);
+            "mode=signed | apkOnly=" + apkOnlyUpdate + " | replaceOtherSigner=" + replaceOtherSigner +
+            " | versionCode=" + apk.AndroidVersionCode);
 
+        _replaceOtherSigner = replaceOtherSigner;
         _apkDownloadReady = false;
         _installStarted = false;
         _pendingApkPath = null;
@@ -234,8 +240,59 @@ public class ApkInstaller : MonoBehaviour
 
         _installStarted = true;
         InstallerLog.Mark("APK_INSTALL_LAUNCH", "path=" + _pendingApkPath);
+        if (_replaceOtherSigner)
+        {
+            StartCoroutine(RemoveOldThenInstall(_pendingApkPath));
+            return;
+        }
+
         SetStatus("Downloads complete. Installing APK...");
         InstallApk(_pendingApkPath);
+    }
+
+    private IEnumerator RemoveOldThenInstall(string apkPath)
+    {
+        InstallerLog.Mark("MIGRATION_NOTICE_SHOWN");
+        for (int left = NevrMigrationMessages.SecondsToRead; left > 0; left--)
+        {
+            SetStatus(NevrMigrationMessages.BeforeUninstall(left));
+            yield return new WaitForSecondsRealtime(1f);
+        }
+
+        InstallerLog.Mark("MIGRATION_UNINSTALL_REQUESTED", "package=" + NevrQuestRelease.EchoPackageName);
+        if (!NevrAndroid.TryRequestUninstall(NevrQuestRelease.EchoPackageName, out string requestError))
+        {
+            InstallerLog.Error("MIGRATION_UNINSTALL_REQUEST_FAILED | " + requestError);
+            SetStatus(NevrMigrationMessages.CouldNotAsk);
+            _installStarted = false;
+            yield break;
+        }
+
+        SetStatus("Waiting for you to answer Android's uninstall question...");
+        const float timeoutSeconds = 180f;
+        float startedAt = Time.unscaledTime;
+        while (Time.unscaledTime - startedAt < timeoutSeconds)
+        {
+            yield return new WaitForSecondsRealtime(1f);
+            if (!NevrAndroid.TryReadInstalled(
+                    NevrQuestRelease.EchoPackageName, out bool installed, out _, out string readError))
+            {
+                InstallerLog.Warning("MIGRATION_CHECK_FAILED | " + readError);
+                continue;
+            }
+
+            if (!installed)
+            {
+                InstallerLog.Mark("MIGRATION_OLD_REMOVED");
+                SetStatus(NevrMigrationMessages.Removed);
+                InstallApk(apkPath);
+                yield break;
+            }
+        }
+
+        InstallerLog.Warning("MIGRATION_OLD_STILL_INSTALLED");
+        SetStatus(NevrMigrationMessages.StillInstalled);
+        _installStarted = false;
     }
 
     private void UpdateStatusText()

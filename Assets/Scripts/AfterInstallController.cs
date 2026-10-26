@@ -218,18 +218,18 @@ public class AfterInstallController : MonoBehaviour
                     "The Echo VR on this headset is newer than the release on the update list, so nothing was changed.");
                 break;
             case NevrInstallAction.Update:
-                BeginSignedApkUpdate(apk);
+                BeginSignedApkUpdate(apk, replaceOtherSigner: false);
                 break;
             case NevrInstallAction.Install:
                 FinishUpdateWithError("Echo VR is not installed on this headset. Use the install screen first.");
                 break;
             default:
-                FinishUpdateWithError(NevrMigrationMessages.DifferentSigner);
+                BeginSignedApkUpdate(apk, replaceOtherSigner: true);
                 break;
         }
     }
 
-    private void BeginSignedApkUpdate(NevrArtifact apk)
+    private void BeginSignedApkUpdate(NevrArtifact apk, bool replaceOtherSigner)
     {
         InstallerLog.Mark("UPDATE_SIGNED_APK_REQUIRED");
         ApkInstaller installer = GetApkInstaller();
@@ -240,7 +240,7 @@ public class AfterInstallController : MonoBehaviour
         }
 
         BeginApkUpdateDisplay();
-        installer.DownloadAndInstallSigned(apk, apkOnlyUpdate: true);
+        installer.DownloadAndInstallSigned(apk, apkOnlyUpdate: true, replaceOtherSigner: replaceOtherSigner);
     }
 
     private void BeginApkUpdateDisplay()

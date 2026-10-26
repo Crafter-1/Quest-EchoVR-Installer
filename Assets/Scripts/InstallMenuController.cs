@@ -92,7 +92,7 @@ public class InstallMenuController : MonoBehaviour
                     installer.SkipApkInstallBecauseCurrent();
                     break;
                 default:
-                    installer.SetStatusMessage(NevrMigrationMessages.DifferentSigner);
+                    installer.DownloadAndInstallSigned(apk, apkOnlyUpdate: false, replaceOtherSigner: true);
                     break;
             }
         });
