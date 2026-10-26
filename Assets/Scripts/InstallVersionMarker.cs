@@ -13,6 +13,7 @@ public sealed class InstallVersionMarkerData
     public string InstallerVersion;
     public bool Trusted;
     public int PackageVersionCode;
+    public string SignerCertSha256;
 }
 
 public static class InstallVersionMarker
@@ -39,7 +40,8 @@ public static class InstallVersionMarker
                 ? "unknown"
                 : Application.version,
             Trusted = true,
-            PackageVersionCode = packageVersionCode
+            PackageVersionCode = packageVersionCode,
+            SignerCertSha256 = apk.AndroidSignerCertSha256
         };
 
         return WriteAtomic(PendingPath, Serialize(data, includeTrusted: true), out error);
@@ -139,7 +141,10 @@ public static class InstallVersionMarker
                                          out string packageVersion) &&
                                      int.TryParse(packageVersion, out int parsedVersion)
                     ? parsedVersion
-                    : 0
+                    : 0,
+                SignerCertSha256 = values.TryGetValue("signer_cert_sha256", out string signer)
+                    ? signer
+                    : string.Empty
             };
             return true;
         }
@@ -165,6 +170,7 @@ public static class InstallVersionMarker
         {
             text += $"trusted={data.Trusted.ToString().ToLowerInvariant()}\n";
             text += $"package_version_code={data.PackageVersionCode}\n";
+            text += $"signer_cert_sha256={Sanitize(data.SignerCertSha256)}\n";
         }
 
         return text;

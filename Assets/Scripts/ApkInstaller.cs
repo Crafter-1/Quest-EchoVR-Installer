@@ -18,6 +18,12 @@ public class ApkInstaller : MonoBehaviour
     private bool _installStarted;
     private bool _apkOnlyUpdate;
     private int _pendingPackageVersionCode;
+    private NevrArtifact _pendingApk;
+
+    // An APK download that receives nothing for this long, or runs this long in all, is
+    // stopped with a message instead of leaving the player on a progress screen.
+    private const double DownloadStallSeconds = 30;
+    private const double DownloadTotalSeconds = 3600;
 
     // Downloads the Quest APK the signed manifest names, checks it against the manifest,
     // then hands it to Android's installer once the game data is ready. `apkOnlyUpdate`
@@ -31,6 +37,7 @@ public class ApkInstaller : MonoBehaviour
         _installStarted = false;
         _pendingApkPath = null;
         _pendingPackageVersionCode = 0;
+        _pendingApk = null;
         _apkOnlyUpdate = apkOnlyUpdate;
         if (apkOnlyUpdate)
             _dataDownloadReady = true;
@@ -72,17 +79,40 @@ public class ApkInstaller : MonoBehaviour
 #endif
     }
 
-    public bool IsPendingApkInstalled()
+    // After Android's installer returns: the package on the headset must be the APK this
+    // installer verified, signed by the key the manifest named. Returns null when it is,
+    // otherwise a sentence for the player.
+    public string CheckPendingApkInstalled()
     {
-        int expectedVersion = _pendingPackageVersionCode;
-        if (expectedVersion <= 0 &&
+        string expectedCert = _pendingApk != null ? _pendingApk.AndroidSignerCertSha256 : null;
+        long expectedVersion = _pendingPackageVersionCode;
+        if ((string.IsNullOrEmpty(expectedCert) || expectedVersion <= 0) &&
             InstallVersionMarker.TryReadPending(out InstallVersionMarkerData pending))
-            expectedVersion = pending.PackageVersionCode;
+        {
+            expectedCert = string.IsNullOrEmpty(expectedCert) ? pending.SignerCertSha256 : expectedCert;
+            expectedVersion = expectedVersion > 0 ? expectedVersion : pending.PackageVersionCode;
+        }
 
-        int installedVersion = QuestUpdateManager.GetInstalledEchoVersionCode();
-        return expectedVersion <= 0
-            ? IsEchoVrInstalled()
-            : installedVersion == expectedVersion;
+        if (!NevrAndroid.TryReadInstalled(
+                NevrQuestRelease.EchoPackageName,
+                out bool installed,
+                out NevrAndroid.PackageDetails details,
+                out string readError))
+        {
+            InstallerLog.Error("INSTALLED_CHECK_FAILED | " + readError);
+            return "The installer could not check the Echo VR that was installed (" + readError + "), so it cannot confirm the install.";
+        }
+
+        string message = NevrQuestRelease.CheckInstalled(
+            expectedCert, expectedVersion, installed,
+            installed ? details.VersionCode : 0, installed ? details.SignerCertSha256 : null);
+        if (message != null)
+            InstallerLog.Error("INSTALL_NOT_CONFIRMED | " + message);
+        else
+            InstallerLog.Mark("INSTALL_CONFIRMED",
+                "versionCode=" + details.VersionCode + " | signer=" + details.SignerCertSha256[0]);
+
+        return message;
     }
 
     private IEnumerator DownloadAndInstallSignedRoutine(NevrArtifact apk)
@@ -121,40 +151,23 @@ public class ApkInstaller : MonoBehaviour
                 yield break;
             }
 
-            var sink = new NevrDownloadSink(stream, apk.Size, true);
             _downloadedBytes = 0;
             _totalBytes = apk.Size;
-            string failure = null;
-            string downloadedSha256 = null;
+            var outcome = new NevrHttpOutcome();
 
             SetStatus("Connecting to the APK download...");
-            using (var handler = new NevrCappedDownloadHandler(sink))
-            using (var request = UnityWebRequest.Get(NevrManifest.BuildArtifactUrl(apk)))
-            {
-                request.timeout = 0;
-                request.downloadHandler = handler;
-                UnityWebRequestAsyncOperation operation = request.SendWebRequest();
-
-                while (!operation.isDone)
+            yield return NevrHttpDownload.Get(
+                NevrManifest.BuildArtifactUrl(apk), stream, apk.Size, true, 0,
+                DownloadStallSeconds, DownloadTotalSeconds, outcome,
+                received =>
                 {
-                    _downloadedBytes = sink.Received;
+                    _downloadedBytes = received;
                     UpdateStatusText();
-                    yield return null;
-                }
+                });
 
-                if (sink.Error != null)
-                    failure = sink.Error;
-                else if (request.result == UnityWebRequest.Result.ProtocolError)
-                    failure = "The update server answered with an error (HTTP " + request.responseCode + ").";
-                else if (request.result != UnityWebRequest.Result.Success)
-                    failure = "Could not download the APK (" + request.error + "). Check the headset's internet connection and try again.";
-                else if (!sink.Complete(out downloadedSha256))
-                    failure = sink.Error;
-            }
-
-            sink.Dispose();
+            string failure = outcome.Failure;
             if (failure == null &&
-                !string.Equals(downloadedSha256, apk.Sha256, StringComparison.OrdinalIgnoreCase))
+                !string.Equals(outcome.Sha256, apk.Sha256, StringComparison.OrdinalIgnoreCase))
                 failure = "The downloaded APK is not the file the update list names (its checksum differs), so it was not installed.";
 
             if (failure == null && !TryReplaceFile(temporaryPath, savePath, out string replaceError))
@@ -186,6 +199,7 @@ public class ApkInstaller : MonoBehaviour
         }
 
         _pendingPackageVersionCode = (int)details.VersionCode;
+        _pendingApk = apk;
         if (!InstallVersionMarker.SavePendingSigned(apk, _pendingPackageVersionCode, out string markerError))
         {
             // The APK is verified, so this should be visible but must not stop the install.
@@ -202,10 +216,10 @@ public class ApkInstaller : MonoBehaviour
         TryBeginInstall();
     }
 
-    private void Fail(string logEvent, string message)
+    private void Fail(string logEvent, string message, string prefix = "APK download failed: ")
     {
         InstallerLog.Error(logEvent + " | " + message);
-        SetStatus("APK download failed: " + message);
+        SetStatus(prefix + message);
     }
 
     private static long TryGetLength(string path)
@@ -229,13 +243,48 @@ public class ApkInstaller : MonoBehaviour
     private void TryBeginInstall()
     {
         if (_installStarted || !_apkDownloadReady || !_dataDownloadReady ||
-            string.IsNullOrEmpty(_pendingApkPath))
+            string.IsNullOrEmpty(_pendingApkPath) || _pendingApk == null)
             return;
 
         _installStarted = true;
-        InstallerLog.Mark("APK_INSTALL_LAUNCH", "path=" + _pendingApkPath);
-        SetStatus("Downloads complete. Installing APK...");
-        InstallApk(_pendingApkPath);
+        StartCoroutine(VerifyThenInstall(_pendingApk, _pendingApkPath));
+    }
+
+    // The APK sat on external storage while the game data downloaded, where anything with
+    // file access could have swapped it. Hash it again, and read its package and signer
+    // again, and hand it to Android in the same step: nothing waits between the last check
+    // and the install intent.
+    private IEnumerator VerifyThenInstall(NevrArtifact apk, string path)
+    {
+        SetStatus("Downloads complete. Checking the APK once more before installing...");
+        string sha256 = null;
+        string hashError = null;
+        yield return Sha256Utility.CalculateFile(path, hash => sha256 = hash, error => hashError = error);
+
+        string refusal = null;
+        if (hashError != null)
+            refusal = "The installer could not read the downloaded APK again (" + hashError + "), so it did not install it.";
+        else if (TryGetLength(path) != apk.Size ||
+                 !string.Equals(sha256, apk.Sha256, StringComparison.OrdinalIgnoreCase))
+            refusal = "The downloaded APK changed on the headset after it was checked, so it was not installed. Try the install again.";
+        else if (!NevrAndroid.TryReadApk(path, out NevrAndroid.PackageDetails details, out string readError))
+            refusal = "Android could not read the downloaded APK again: " + readError;
+        else
+            refusal = NevrQuestRelease.CheckApk(apk, details.PackageName, details.VersionCode, details.SignerCertSha256);
+
+        if (refusal != null)
+        {
+            TryDelete(path);
+            _installStarted = false;
+            _apkDownloadReady = false;
+            _pendingApkPath = null;
+            Fail("APK_REVERIFY_FAILED", refusal, "APK not installed: ");
+            yield break;
+        }
+
+        InstallerLog.Mark("APK_INSTALL_LAUNCH", "path=" + path + " | sha256=" + sha256);
+        SetStatus("Installing APK...");
+        InstallApk(path);
     }
 
     private void UpdateStatusText()

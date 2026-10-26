@@ -15,7 +15,7 @@ public class Download : MonoBehaviour
     public QuestUpdateManager updateManager;
 
     [Header("Server")] public string[] ServerLocations =
-        { "http://evr.echo.taxi", "http://files.echovr.de"};
+        { "https://evr.echo.taxi", "https://files.echovr.de"};
 
     [Header("Config")] public int TestTimeMs = 2000;
     public int TimeoutMs = 2000; // only used for the quick server speed test
@@ -47,6 +47,24 @@ public class Download : MonoBehaviour
     private bool _suppressAutomaticDataDownload;
 
     public void Start()
+    {
+        StartCoroutine(BeginWhenManifestAccepted());
+    }
+
+    // Nothing downloads, and nothing is offered to the installer, until the signed manifest
+    // has been fetched and accepted.
+    private IEnumerator BeginWhenManifestAccepted()
+    {
+        if (!NevrInstallGate.IsOpen)
+            InstallerLog.Mark("DOWNLOAD_WAITING_FOR_MANIFEST");
+
+        while (!NevrInstallGate.IsOpen)
+            yield return null;
+
+        BeginDataFlow();
+    }
+
+    private void BeginDataFlow()
     {
         InstallerLog.Mark("DOWNLOAD_START", "version=" + EvrVersion);
         InitializePaths();

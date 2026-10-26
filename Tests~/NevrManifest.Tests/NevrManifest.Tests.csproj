@@ -11,6 +11,7 @@
   <ItemGroup>
     <!-- The same source files Unity compiles; nothing here uses UnityEngine. -->
     <Compile Include="../../Assets/Scripts/NevrManifest/*.cs" />
+    <Compile Include="../../Assets/Scripts/QuestUpdateManifest.cs" />
     <Compile Include="*.cs" />
     <Reference Include="BouncyCastle.Cryptography">
       <HintPath>../../Assets/Plugins/BouncyCastle/BouncyCastle.Cryptography.dll</HintPath>

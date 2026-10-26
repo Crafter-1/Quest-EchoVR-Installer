@@ -94,6 +94,33 @@ public static class NevrQuestRelease
         return null;
     }
 
+    // After Android's installer returns: the package on the headset must be the one that was
+    // verified before the install, signed by the key the manifest named. A matching version
+    // code alone is not enough. Returns null when it is, otherwise a sentence for the player.
+    public static string CheckInstalled(
+        string expectedSignerCertSha256,
+        long expectedVersionCode,
+        bool installed,
+        long installedVersionCode,
+        IReadOnlyList<string> installedSignerCertSha256)
+    {
+        if (!installed)
+            return "Echo VR is not installed on this headset.";
+
+        if (string.IsNullOrEmpty(expectedSignerCertSha256))
+            return "The installer has no record of who should have signed the Echo VR it installed, so it cannot confirm the install.";
+
+        if (installedVersionCode != expectedVersionCode)
+            return $"The Echo VR on this headset is version code {installedVersionCode}, not the {expectedVersionCode} that was downloaded.";
+
+        if (installedSignerCertSha256 == null || installedSignerCertSha256.Count != 1 ||
+            !string.Equals(installedSignerCertSha256[0], expectedSignerCertSha256, StringComparison.OrdinalIgnoreCase))
+            return "The Echo VR now on this headset is signed by a different key than the update list names, " +
+                   "so it is not the release the installer verified. Do not use it: uninstall Echo VR and run the installer again.";
+
+        return null;
+    }
+
     // True when every certificate Android reports for an installed package is the one the
     // manifest names for our APK. Android only updates a package in place when the new APK
     // has the same signer.
