@@ -40,6 +40,7 @@ public class InstallMenuController : MonoBehaviour
 
     private void BeginSignedInstall()
     {
+        NevrInstallGate.Close();
         if (mainMenuPanel != null)
             mainMenuPanel.SetActive(false);
         if (patchedInputPanel != null)
@@ -81,6 +82,9 @@ public class InstallMenuController : MonoBehaviour
             NevrInstallAction action = NevrQuestRelease.Plan(
                 apk, installed, installed ? details.VersionCode : 0, installed ? details.SignerCertSha256 : null);
             InstallerLog.Mark("INSTALL_PLAN", "action=" + action);
+            // The manifest is accepted: only now may the game-data download start.
+            NevrInstallGate.Open();
+
             switch (action)
             {
                 case NevrInstallAction.Install:

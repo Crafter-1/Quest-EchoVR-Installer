@@ -3,7 +3,6 @@ using System.Collections;
 using System.IO;
 using System.Text;
 using UnityEngine;
-using UnityEngine.Networking;
 
 public sealed class NevrFetchResult
 {
@@ -20,6 +19,7 @@ public sealed class NevrFetchResult
 public static class NevrManifestClient
 {
     private const int TimeoutSeconds = 20;
+    private const double StallSeconds = 15;
     private const int SignatureRetries = 2;
     private const float RetryDelaySeconds = 3f;
 
@@ -126,40 +126,18 @@ public static class NevrManifestClient
     private static IEnumerator Get(string url, long limit, GetResult result)
     {
         var buffer = new MemoryStream();
-        var sink = new NevrDownloadSink(buffer, limit, false);
-        using (var handler = new NevrCappedDownloadHandler(sink))
-        using (var request = UnityWebRequest.Get(url))
-        {
-            request.timeout = TimeoutSeconds;
-            request.downloadHandler = handler;
-            yield return request.SendWebRequest();
+        var outcome = new NevrHttpOutcome();
+        yield return NevrHttpDownload.Get(
+            url, buffer, limit, false, TimeoutSeconds, StallSeconds, TimeoutSeconds, outcome);
 
-            if (sink.Error != null)
-            {
-                InstallerLog.Error("NEVR_GET_REFUSED | " + url + " | " + sink.Error);
-                result.Error = "The update server's answer was not what the installer expects (" + sink.Error + ")";
-            }
-            else if (request.result == UnityWebRequest.Result.ProtocolError)
-            {
-                InstallerLog.Error("NEVR_GET_HTTP | " + url + " | " + request.responseCode);
-                result.Error = "The update server answered with an error (HTTP " + request.responseCode + "). Try again later.";
-            }
-            else if (request.result != UnityWebRequest.Result.Success)
-            {
-                InstallerLog.Error("NEVR_GET_FAILED | " + url + " | " + request.result + " | " + request.error);
-                result.Error = "Could not reach the update server (" + request.error + "). Check the headset's internet connection and try again.";
-            }
-            else if (!sink.Complete(out _))
-            {
-                result.Error = "The update server's answer could not be saved: " + sink.Error;
-            }
-            else
-            {
-                result.Bytes = buffer.ToArray();
-                result.DateHeader = request.GetResponseHeader("Date");
-            }
+        if (outcome.Failure != null)
+        {
+            InstallerLog.Error("NEVR_GET_FAILED | " + url + " | http=" + outcome.ResponseCode + " | " + outcome.Failure);
+            result.Error = outcome.Failure;
+            yield break;
         }
 
-        sink.Dispose();
+        result.Bytes = buffer.ToArray();
+        result.DateHeader = outcome.DateHeader;
     }
 }

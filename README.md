@@ -51,8 +51,20 @@ versionCode and signer certificate and compares them with the manifest before it
 file to Android's installer. The manifest must name `signer_cert_sha256`; an APK entry without
 it is refused.
 
-The game data download (`_data.zip`) and the asset sync from the files.echovr.de update list
-are unchanged and **still unhashed**. They move into the signed manifest once it has
-`game-data` artifacts (see EchoTools/nevr-runtime#965).
+Before the install intent the APK is hashed and read again (it sits on external storage while
+the game data downloads), and after Android's installer returns the installed package's signer
+certificate must equal `signer_cert_sha256`; a mismatch stops the setup with a plain message.
+Nothing, including the game-data download, starts until the manifest has been accepted. No
+request follows a redirect, and the APK download stops after 30 s without data or 60 min in all.
+
+**Game data stays unsigned.** The game data download (`_data.zip`) and the asset sync from the
+files.echovr.de update list are still not covered by a signature or hashes in the signed manifest.
+They move into it once it has `game-data` artifacts (see EchoTools/nevr-runtime#965). Until then the
+update list is held to: the pinned address `https://files.echovr.de/updates/quest/update.manifest`
+(its own Base URL is ignored for downloads and must be that host), https only, no redirects,
+at most 256 KB for the list, 1000 entries, 128 MB per file and 512 MB in all, writes and deletes
+only under `asset_patches/` and `files/` in Echo's media folder, no hidden files, no `.so`, `.dex`,
+`.apk`, `.jar`, `.dll` or other program files, and the existing path-traversal guard. The `_data.zip`
+download itself is https now but uncapped and unhashed.
 
 Android reads the APK's signer on API 28+. This code has not run on a headset yet.

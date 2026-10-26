@@ -198,3 +198,41 @@ public class NevrInstallPlanTests
         Assert.Equal(NevrInstallAction.DifferentSigner, NevrQuestRelease.Plan(apk, true, 4987566, new string[0]));
     }
 }
+
+public class NevrInstalledCheckTests
+{
+    private const string Cert = "c0ffee0000000000000000000000000000000000000000000000000000000000";
+    private const string Other = "bad0000000000000000000000000000000000000000000000000000000000000";
+
+    [Fact]
+    public void MatchingInstallPasses()
+    {
+        Assert.Null(NevrQuestRelease.CheckInstalled(Cert, 4987566, true, 4987566, new[] { Cert }));
+        Assert.Null(NevrQuestRelease.CheckInstalled(Cert, 4987566, true, 4987566, new[] { Cert.ToUpperInvariant() }));
+    }
+
+    [Fact]
+    public void WrongSignerIsReportedPlainly()
+    {
+        string message = NevrQuestRelease.CheckInstalled(Cert, 4987566, true, 4987566, new[] { Other });
+        Assert.NotNull(message);
+        Assert.Contains("different key", message);
+    }
+
+    [Fact]
+    public void SameVersionCodeIsNotEnough()
+    {
+        Assert.NotNull(NevrQuestRelease.CheckInstalled(Cert, 4987566, true, 4987566, new[] { Other }));
+    }
+
+    [Fact]
+    public void ProblemsAreRefused()
+    {
+        Assert.NotNull(NevrQuestRelease.CheckInstalled(Cert, 4987566, false, 0, null));
+        Assert.NotNull(NevrQuestRelease.CheckInstalled(Cert, 4987566, true, 4987565, new[] { Cert }));
+        Assert.NotNull(NevrQuestRelease.CheckInstalled(Cert, 4987566, true, 4987566, new[] { Cert, Cert }));
+        Assert.NotNull(NevrQuestRelease.CheckInstalled(Cert, 4987566, true, 4987566, null));
+        Assert.NotNull(NevrQuestRelease.CheckInstalled(null, 4987566, true, 4987566, new[] { Cert }));
+        Assert.NotNull(NevrQuestRelease.CheckInstalled("", 4987566, true, 4987566, new[] { Cert }));
+    }
+}
