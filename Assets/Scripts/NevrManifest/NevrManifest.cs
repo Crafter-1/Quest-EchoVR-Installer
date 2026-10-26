@@ -51,13 +51,13 @@ public sealed class NevrManifest
     private const long MaxJsonInteger = 9007199254740991;
     private const string TimestampFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'";
     private static readonly Regex VersionPattern =
-        new Regex(@"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$");
-    private static readonly Regex Sha256Pattern = new Regex(@"^[0-9a-f]{64}$");
-    private static readonly Regex CommitPattern = new Regex(@"^[0-9a-f]{40}$");
-    private static readonly Regex KeyIdPattern = new Regex(@"^[0-9a-f]{16}$");
-    private static readonly Regex ChannelPattern = new Regex(@"^(stable|beta)$");
+        new Regex(@"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\z");
+    private static readonly Regex Sha256Pattern = new Regex(@"^[0-9a-f]{64}\z");
+    private static readonly Regex CommitPattern = new Regex(@"^[0-9a-f]{40}\z");
+    private static readonly Regex KeyIdPattern = new Regex(@"^[0-9a-f]{16}\z");
+    private static readonly Regex ChannelPattern = new Regex(@"^(stable|beta)\z");
     private static readonly Regex ArtifactPathPattern = new Regex(
-        @"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)/nevr-runtime-v[0-9]+\.[0-9]+\.[0-9]+-[a-z0-9.-]+$");
+        @"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)/nevr-runtime-v[0-9]+\.[0-9]+\.[0-9]+-[a-z0-9.-]+\z");
 
     // Never throws. The caller must have verified the signature over these exact bytes.
     public static bool TryParse(byte[] bytes, out NevrManifest manifest, out string error)
