@@ -11,7 +11,6 @@ For full instructions on how to install this on your quest, please read https://
 
 ## Notes
 For this you need to be in the Echo VR lounge discord. (https://discord.gg/X5Bx4fDdBG)
-For the patched method you need to be in the patcher server. (https://discord.gg/Rs8CQvjDv)
 This is built for the Meta Quest headsets, this will not work on a regular android device.
 
 ## Signed release manifest (verifier core)
