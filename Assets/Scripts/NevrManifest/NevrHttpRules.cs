@@ -3,6 +3,9 @@
 // the clock for the manifest must come from the original https response.
 public static class NevrHttpRules
 {
+    // Every UnityWebRequest sets its redirectLimit to this. Unity's default follows up to 32.
+    public const int RedirectLimit = 0;
+
     public static string RefusalFor(long responseCode)
     {
         if (responseCode == 200)
