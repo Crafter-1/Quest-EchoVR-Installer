@@ -214,33 +214,6 @@ public class QuestUpdateManager : MonoBehaviour
         return InstallVersionMarker.TryReadFinal(GetTargetRoot(), out marker);
     }
 
-    public bool IsManifestBaseApkInstalled()
-    {
-        if (CurrentManifest == null ||
-            !InstallVersionMarker.TryReadFinal(
-                GetTargetRoot(),
-                out InstallVersionMarkerData marker))
-            return false;
-
-        return string.Equals(
-            marker.BaseSha256,
-            CurrentManifest.BaseApkSha256,
-            StringComparison.OrdinalIgnoreCase);
-    }
-
-    public string[] GetBaseApkMirrors()
-    {
-        if (CurrentManifest == null)
-            return Array.Empty<string>();
-
-        string fileName = Uri.EscapeDataString(CurrentManifest.BaseApkFileName);
-        return new[]
-        {
-            "https://files.echovr.de/" + fileName,
-            "https://evr.echo.taxi/" + fileName
-        };
-    }
-
     public static int GetInstalledEchoVersionCode()
     {
 #if UNITY_ANDROID && !UNITY_EDITOR

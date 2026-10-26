@@ -23,25 +23,22 @@ public static class InstallVersionMarker
     private static string PendingPath =>
         Path.Combine(Application.persistentDataPath, PendingFileName);
 
-    public static bool SavePending(
-        QuestUpdateManifest manifest,
-        string installedSha256,
-        bool patched,
-        bool trusted,
+    public static bool SavePendingSigned(
+        NevrArtifact apk,
         int packageVersionCode,
         out string error)
     {
         var data = new InstallVersionMarkerData
         {
-            BaseApk = manifest.BaseApkFileName,
-            BaseSha256 = manifest.BaseApkSha256,
-            InstalledSha256 = installedSha256,
-            Patched = patched,
+            BaseApk = apk.Name,
+            BaseSha256 = apk.Sha256,
+            InstalledSha256 = apk.Sha256,
+            Patched = false,
             InstalledAt = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
             InstallerVersion = string.IsNullOrWhiteSpace(Application.version)
                 ? "unknown"
                 : Application.version,
-            Trusted = trusted,
+            Trusted = true,
             PackageVersionCode = packageVersionCode
         };
 

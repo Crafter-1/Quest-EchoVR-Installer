@@ -40,3 +40,19 @@ Dependencies, pinned: `BouncyCastle.Cryptography` 2.7.0 (netstandard2.0 DLL in
 stripped. IL2CPP on a headset is untested.
 
 Run the tests: `dotnet test Tests~/NevrManifest.Tests`.
+
+## Installing and updating Echo VR (signed APK)
+
+Both install buttons install the Quest APK that the signed release manifest names for the
+`beta` channel (`NevrReleaseManager.channel`). The installer checks the manifest (see above),
+downloads the APK from `https://evr.echo.taxi/nevr-runtime/<path>` stopping at the manifest's
+`size`, checks the SHA-256 and size, then asks Android for the file's package name,
+versionCode and signer certificate and compares them with the manifest before it hands the
+file to Android's installer. The manifest must name `signer_cert_sha256`; an APK entry without
+it is refused.
+
+The game data download (`_data.zip`) and the asset sync from the files.echovr.de update list
+are unchanged and **still unhashed**. They move into the signed manifest once it has
+`game-data` artifacts (see EchoTools/nevr-runtime#965).
+
+Android reads the APK's signer on API 28+. This code has not run on a headset yet.

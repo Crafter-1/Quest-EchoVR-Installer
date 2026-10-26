@@ -10,7 +10,6 @@ public class ApkInstaller : MonoBehaviour
     public TMPro.TMP_Text statusText;
     public AfterInstallController afterInstallController;
 
-    private string _apkFileName = "install.apk";
     private long _downloadedBytes;
     private long _totalBytes;
     private string _pendingApkPath;
@@ -20,67 +19,23 @@ public class ApkInstaller : MonoBehaviour
     private bool _apkOnlyUpdate;
     private int _pendingPackageVersionCode;
 
-    // Kept for callers that do not use the update manifest.
-    public void DownloadAndInstallFromUrl(string url)
+    // Downloads the Quest APK the signed manifest names, checks it against the manifest,
+    // then hands it to Android's installer once the game data is ready. `apkOnlyUpdate`
+    // skips waiting for the data download.
+    public void DownloadAndInstallSigned(NevrArtifact apk, bool apkOnlyUpdate)
     {
-        InstallerLog.Mark("APK_INSTALL_REQUEST", "url=" + url);
-        BeginDownload(new[] { url }, null, null, patched: false, apkOnlyUpdate: false);
-    }
+        InstallerLog.Mark("APK_INSTALL_REQUEST",
+            "mode=signed | apkOnly=" + apkOnlyUpdate + " | versionCode=" + apk.AndroidVersionCode);
 
-    public void DownloadAndInstallFromManifest(
-        QuestUpdateManifest manifest,
-        string[] mirrors)
-    {
-        InstallerLog.Mark("APK_INSTALL_REQUEST", "mode=legacy");
-        if (manifest == null)
-        {
-            SetStatus("APK download failed: the update manifest is missing.");
-            return;
-        }
+        _apkDownloadReady = false;
+        _installStarted = false;
+        _pendingApkPath = null;
+        _pendingPackageVersionCode = 0;
+        _apkOnlyUpdate = apkOnlyUpdate;
+        if (apkOnlyUpdate)
+            _dataDownloadReady = true;
 
-        BeginDownload(
-            mirrors,
-            manifest.BaseApkSha256,
-            manifest,
-            patched: false,
-            apkOnlyUpdate: false);
-    }
-
-    public void DownloadAndInstallPatchedFromUrl(
-        string url,
-        QuestUpdateManifest manifest)
-    {
-        InstallerLog.Mark("APK_INSTALL_REQUEST", "mode=patched | url=" + url);
-        BeginDownload(
-            new[] { url }, null, manifest, patched: true, apkOnlyUpdate: false);
-    }
-
-    public void DownloadAndInstallUpdateFromManifest(
-        QuestUpdateManifest manifest,
-        string[] mirrors)
-    {
-        InstallerLog.Mark("APK_UPDATE_REQUEST", "mode=legacy");
-        if (manifest == null)
-        {
-            SetStatus("APK update failed: the update manifest is missing.");
-            return;
-        }
-
-        BeginDownload(
-            mirrors,
-            manifest.BaseApkSha256,
-            manifest,
-            patched: false,
-            apkOnlyUpdate: true);
-    }
-
-    public void DownloadAndInstallPatchedUpdateFromUrl(
-        string url,
-        QuestUpdateManifest manifest)
-    {
-        InstallerLog.Mark("APK_UPDATE_REQUEST", "mode=patched | url=" + url);
-        BeginDownload(
-            new[] { url }, null, manifest, patched: true, apkOnlyUpdate: true);
+        StartCoroutine(DownloadAndInstallSignedRoutine(apk));
     }
 
     public void SetStatusMessage(string message)
@@ -130,193 +85,139 @@ public class ApkInstaller : MonoBehaviour
             : installedVersion == expectedVersion;
     }
 
-    private void BeginDownload(
-        string[] urls,
-        string expectedSha256,
-        QuestUpdateManifest manifest,
-        bool patched,
-        bool apkOnlyUpdate)
+    private IEnumerator DownloadAndInstallSignedRoutine(NevrArtifact apk)
     {
-        InstallerLog.Mark("APK_DOWNLOAD_START", "patched=" + patched + " | apkOnly=" + apkOnlyUpdate);
-        if (urls == null || urls.Length == 0)
-        {
-            SetStatus("APK download failed: no download location was supplied.");
-            return;
-        }
+        string savePath = Path.Combine(Application.persistentDataPath, apk.Name);
+        string temporaryPath = savePath + ".part";
 
-        _apkDownloadReady = false;
-        _installStarted = false;
-        _pendingApkPath = null;
-        _pendingPackageVersionCode = 0;
-        _apkOnlyUpdate = apkOnlyUpdate;
-        if (apkOnlyUpdate)
-            _dataDownloadReady = true;
-        StartCoroutine(DownloadAndInstall(urls, expectedSha256, manifest, patched));
-    }
-
-    private IEnumerator DownloadAndInstall(
-        string[] urls,
-        string expectedSha256,
-        QuestUpdateManifest manifest,
-        bool patched)
-    {
-        if (manifest != null)
-        {
-            _apkFileName = manifest.BaseApkFileName;
-        }
-        else if (TryGetApkFileName(urls[0], out string fileNameFromUrl))
-        {
-            _apkFileName = fileNameFromUrl;
-        }
-
-        string savePath = Path.Combine(Application.persistentDataPath, _apkFileName);
-        string downloadedSha256 = null;
-        bool downloadSucceeded = false;
-        string lastError = null;
-
-        // A previously verified clean APK can be reused after a retry or restart.
-        if (QuestUpdateManifest.IsSha256(expectedSha256) && File.Exists(savePath))
+        // A file from an earlier run is reused only if it is the exact size and hash the
+        // manifest now names.
+        bool haveVerifiedFile = false;
+        if (TryGetLength(savePath) == apk.Size)
         {
             SetStatus("Checking the downloaded APK...");
-            string existingHashError = null;
+            string existingSha256 = null;
+            string existingError = null;
             yield return Sha256Utility.CalculateFile(
-                savePath,
-                hash => downloadedSha256 = hash,
-                error => existingHashError = error);
-
-            downloadSucceeded = existingHashError == null &&
-                                string.Equals(
-                                    downloadedSha256,
-                                    expectedSha256,
-                                    StringComparison.OrdinalIgnoreCase);
+                savePath, hash => existingSha256 = hash, error => existingError = error);
+            haveVerifiedFile = existingError == null &&
+                               string.Equals(existingSha256, apk.Sha256, StringComparison.OrdinalIgnoreCase);
         }
 
-        for (int index = 0; index < urls.Length && !downloadSucceeded; index++)
+        if (!haveVerifiedFile)
         {
-            string url = urls[index];
-            if (!Uri.TryCreate(url, UriKind.Absolute, out Uri apkUri) ||
-                (apkUri.Scheme != Uri.UriSchemeHttps && apkUri.Scheme != Uri.UriSchemeHttp))
-            {
-                lastError = "Invalid APK download URL.";
-                continue;
-            }
-
-            _downloadedBytes = 0;
-            _totalBytes = 0;
-            SetStatus(urls.Length > 1
-                ? $"Connecting to APK mirror {index + 1}/{urls.Length}..."
-                : "Connecting to APK download...");
-            yield return GetFileSize(url, size => _totalBytes = size);
-
-            string temporaryPath = savePath + ".part";
+            TryDelete(savePath);
             TryDelete(temporaryPath);
 
-            using (var request = UnityWebRequest.Get(url))
+            FileStream stream;
+            try
+            {
+                Directory.CreateDirectory(Application.persistentDataPath);
+                stream = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None);
+            }
+            catch (Exception exception)
+            {
+                Fail("APK_DOWNLOAD_FAILED", "Could not save the APK on the headset: " + exception.Message);
+                yield break;
+            }
+
+            var sink = new NevrDownloadSink(stream, apk.Size, true);
+            _downloadedBytes = 0;
+            _totalBytes = apk.Size;
+            string failure = null;
+            string downloadedSha256 = null;
+
+            SetStatus("Connecting to the APK download...");
+            using (var handler = new NevrCappedDownloadHandler(sink))
+            using (var request = UnityWebRequest.Get(NevrManifest.BuildArtifactUrl(apk)))
             {
                 request.timeout = 0;
-                request.downloadHandler = new DownloadHandlerFile(temporaryPath, true);
+                request.downloadHandler = handler;
                 UnityWebRequestAsyncOperation operation = request.SendWebRequest();
 
                 while (!operation.isDone)
                 {
-                    _downloadedBytes = (long)request.downloadedBytes;
+                    _downloadedBytes = sink.Received;
                     UpdateStatusText();
                     yield return null;
                 }
 
-                if (request.result != UnityWebRequest.Result.Success)
-                {
-                    lastError = request.error;
-                    TryDelete(temporaryPath);
-                    continue;
-                }
+                if (sink.Error != null)
+                    failure = sink.Error;
+                else if (request.result == UnityWebRequest.Result.ProtocolError)
+                    failure = "The update server answered with an error (HTTP " + request.responseCode + ").";
+                else if (request.result != UnityWebRequest.Result.Success)
+                    failure = "Could not download the APK (" + request.error + "). Check the headset's internet connection and try again.";
+                else if (!sink.Complete(out downloadedSha256))
+                    failure = sink.Error;
             }
 
-            SetStatus("Verifying APK download...");
-            string hashError = null;
-            downloadedSha256 = null;
-            yield return Sha256Utility.CalculateFile(
-                temporaryPath,
-                hash => downloadedSha256 = hash,
-                error => hashError = error);
+            sink.Dispose();
+            if (failure == null &&
+                !string.Equals(downloadedSha256, apk.Sha256, StringComparison.OrdinalIgnoreCase))
+                failure = "The downloaded APK is not the file the update list names (its checksum differs), so it was not installed.";
 
-            if (hashError != null)
-            {
-                lastError = "Could not calculate APK SHA256: " + hashError;
-                TryDelete(temporaryPath);
-                continue;
-            }
+            if (failure == null && !TryReplaceFile(temporaryPath, savePath, out string replaceError))
+                failure = "Could not save the APK on the headset: " + replaceError;
 
-            if (QuestUpdateManifest.IsSha256(expectedSha256) &&
-                !string.Equals(
-                    downloadedSha256,
-                    expectedSha256,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                lastError = "APK SHA256 did not match the update manifest.";
-                TryDelete(temporaryPath);
-                continue;
-            }
-
-            if (!TryReplaceFile(temporaryPath, savePath, out lastError))
+            if (failure != null)
             {
                 TryDelete(temporaryPath);
-                continue;
-            }
-
-            downloadSucceeded = true;
-        }
-
-        if (!downloadSucceeded)
-        {
-            SetStatus("APK download failed: " + (lastError ?? "all mirrors failed."));
-            yield break;
-        }
-
-        if (string.IsNullOrEmpty(downloadedSha256))
-        {
-            string hashError = null;
-            yield return Sha256Utility.CalculateFile(
-                savePath,
-                hash => downloadedSha256 = hash,
-                error => hashError = error);
-
-            if (hashError != null)
-            {
-                SetStatus("APK verification failed: " + hashError);
+                Fail("APK_DOWNLOAD_FAILED", failure);
                 yield break;
             }
         }
 
-        if (!IsEchoVrApk(
-                savePath,
-                out string apkValidationError,
-                out _pendingPackageVersionCode))
+        SetStatus("Verifying the APK...");
+        if (!NevrAndroid.TryReadApk(savePath, out NevrAndroid.PackageDetails details, out string readError))
         {
-            SetStatus("APK verification failed: " + apkValidationError);
+            TryDelete(savePath);
+            Fail("APK_VERIFY_FAILED", "Android could not read the downloaded APK: " + readError);
             yield break;
         }
 
-        if (manifest != null &&
-            !InstallVersionMarker.SavePending(
-                manifest,
-                downloadedSha256,
-                patched,
-                trusted: true,
-                packageVersionCode: _pendingPackageVersionCode,
-                error: out string markerError))
+        string mismatch = NevrQuestRelease.CheckApk(
+            apk, details.PackageName, details.VersionCode, details.SignerCertSha256);
+        if (mismatch != null)
         {
-            // The APK and its SHA are valid, so marker failure should be visible
-            // but should not prevent installation.
+            TryDelete(savePath);
+            Fail("APK_VERIFY_FAILED", mismatch);
+            yield break;
+        }
+
+        _pendingPackageVersionCode = (int)details.VersionCode;
+        if (!InstallVersionMarker.SavePendingSigned(apk, _pendingPackageVersionCode, out string markerError))
+        {
+            // The APK is verified, so this should be visible but must not stop the install.
+            InstallerLog.Warning("PENDING_MARKER_FAILED | " + markerError);
             Debug.LogWarning($"[ApkInstaller] Could not save pending install marker: {markerError}");
         }
 
         _pendingApkPath = savePath;
         _apkDownloadReady = true;
+        InstallerLog.Mark("APK_VERIFIED", "versionCode=" + details.VersionCode + " | sha256=" + apk.Sha256);
         SetStatus(_apkOnlyUpdate
             ? "APK update downloaded and verified. Opening Android installer..."
             : "APK downloaded and verified. Waiting for game data download...");
         TryBeginInstall();
+    }
+
+    private void Fail(string logEvent, string message)
+    {
+        InstallerLog.Error(logEvent + " | " + message);
+        SetStatus("APK download failed: " + message);
+    }
+
+    private static long TryGetLength(string path)
+    {
+        try
+        {
+            return File.Exists(path) ? new FileInfo(path).Length : -1;
+        }
+        catch (Exception)
+        {
+            return -1;
+        }
     }
 
     public void NotifyDataDownloadReady()
@@ -335,19 +236,6 @@ public class ApkInstaller : MonoBehaviour
         InstallerLog.Mark("APK_INSTALL_LAUNCH", "path=" + _pendingApkPath);
         SetStatus("Downloads complete. Installing APK...");
         InstallApk(_pendingApkPath);
-    }
-
-    private static IEnumerator GetFileSize(string url, Action<long> onComplete)
-    {
-        using (var request = UnityWebRequest.Head(url))
-        {
-            yield return request.SendWebRequest();
-
-            if (!long.TryParse(request.GetResponseHeader("Content-Length"), out long size))
-                size = 0;
-
-            onComplete?.Invoke(size);
-        }
     }
 
     private void UpdateStatusText()
@@ -370,71 +258,6 @@ public class ApkInstaller : MonoBehaviour
             statusText.text = message;
 
         Debug.Log("[ApkInstaller] " + message);
-    }
-
-    private static bool TryGetApkFileName(string url, out string fileName)
-    {
-        fileName = null;
-        if (!Uri.TryCreate(url, UriKind.Absolute, out Uri uri))
-            return false;
-
-        string candidate = Path.GetFileName(uri.LocalPath);
-        if (string.IsNullOrEmpty(candidate) ||
-            !candidate.EndsWith(".apk", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        fileName = candidate;
-        return true;
-    }
-
-    private static bool IsEchoVrApk(
-        string apkPath,
-        out string error,
-        out int packageVersionCode)
-    {
-        error = null;
-        packageVersionCode = 0;
-#if UNITY_ANDROID && !UNITY_EDITOR
-        try
-        {
-            using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
-            using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
-            using (var packageManager = activity.Call<AndroidJavaObject>("getPackageManager"))
-            using (var packageInfo = packageManager.Call<AndroidJavaObject>(
-                       "getPackageArchiveInfo", apkPath, 0))
-            {
-                if (packageInfo == null)
-                {
-                    error = "Android could not read the downloaded APK.";
-                    return false;
-                }
-
-                string packageName = packageInfo.Get<string>("packageName");
-                packageVersionCode = packageInfo.Get<int>("versionCode");
-                if (!string.Equals(
-                        packageName,
-                        QuestUpdateManager.EchoPackageName,
-                        StringComparison.Ordinal))
-                {
-                    error = $"expected {QuestUpdateManager.EchoPackageName}, got {packageName}.";
-                    return false;
-                }
-            }
-        }
-        catch (Exception exception)
-        {
-            error = exception.Message;
-            return false;
-        }
-#else
-        if (!File.Exists(apkPath) ||
-            !apkPath.EndsWith(".apk", StringComparison.OrdinalIgnoreCase))
-        {
-            error = "The downloaded file was not an APK.";
-            return false;
-        }
-#endif
-        return true;
     }
 
     private static bool TryReplaceFile(string source, string destination, out string error)

@@ -1,118 +1,51 @@
 using UnityEngine;
 using TMPro;
-using System.Text.RegularExpressions;
 
 public class InstallMenuController : MonoBehaviour
 {
     [Header("Panels")]
-    public GameObject mainMenuPanel;      // Legacy / Patched choice
-    public GameObject patchedInputPanel;  // link entry screen
+    public GameObject mainMenuPanel;      // Install method choice
+    public GameObject patchedInputPanel;  // retired link entry screen; hidden when installing
     public GameObject downloadPanel;
 
-    [Header("Patched flow")]
+    [Header("Retired link entry (kept so the scene's references stay valid)")]
     public TMP_InputField messageInput;
     public TMP_Text errorText;
 
     [Header("Install flow")]
     public ApkInstaller installer;
     public QuestUpdateManager updateManager;
+    public NevrReleaseManager releaseManager;
 
     [Header("Discord link")]
     public string discordUrl = "https://discord.gg/Rs8CQvjDv";
     public void OnOpenDiscord()
-{
-    Application.OpenURL(discordUrl);
-}
+    {
+        Application.OpenURL(discordUrl);
+    }
 
-    private static readonly Regex UrlPattern = new Regex(@"https?://[^\s]+", RegexOptions.IgnoreCase);
-    private bool _patchedUpdateMode;
-    private QuestUpdateManifest _pendingUpdateManifest;
-    private AfterInstallController _afterInstallController;
-
-    // Called by Button_Legacy's OnClick
+    // Both install buttons start the same install of the signed APK. The scene's labels
+    // still describe the old methods and are changed in the editor.
     public void OnSelectLegacy()
     {
         InstallerLog.Mark("LEGACY_SELECTION");
-        QuestUpdateManager manager = GetUpdateManager();
-        mainMenuPanel.SetActive(false);
-        downloadPanel.SetActive(true);
-
-        if (installer == null)
-            installer = FindFirstObjectByType<ApkInstaller>();
-
-        if (installer == null)
-        {
-            ShowError("Could not find the APK installer.");
-            return;
-        }
-
-        installer.SetStatusMessage("Checking the Echo update manifest...");
-        manager.EnsureManifest((success, error) =>
-        {
-            if (!success)
-            {
-                installer.SetStatusMessage(error);
-                return;
-            }
-
-            if (manager.IsManifestBaseApkInstalled() && ApkInstaller.IsEchoVrInstalled())
-            {
-                installer.SkipApkInstallBecauseCurrent();
-                return;
-            }
-
-            installer.DownloadAndInstallFromManifest(
-                manager.CurrentManifest,
-                manager.GetBaseApkMirrors());
-        });
+        BeginSignedInstall();
     }
 
-    // Called by Button_Patched's OnClick
     public void OnSelectPatched()
     {
         InstallerLog.Mark("PATCHED_SELECTION");
-        mainMenuPanel.SetActive(false);
-        patchedInputPanel.SetActive(true);
+        BeginSignedInstall();
     }
 
-    // Called by SubmitButton's OnClick (inside PatchedInputPanel)
-    public void OnSubmitPatchedLink()
+    private void BeginSignedInstall()
     {
-        InstallerLog.Mark("PATCHED_LINK_SUBMIT");
-        string rawMessage = messageInput.text;
-        string extractedUrl = ExtractApkUrl(rawMessage);
-
-        if (string.IsNullOrEmpty(extractedUrl))
-        {
-            InstallerLog.Warning("PATCHED_LINK_INVALID");
-            ShowError("APK download failed. Did you enter the correct link?");
-            return;
-        }
-
-        ClearError();
-
-        if (_patchedUpdateMode)
-        {
-            if (_afterInstallController == null)
-                _afterInstallController = FindFirstObjectByType<AfterInstallController>();
-
-            if (_afterInstallController == null)
-            {
-                ShowError("Could not find the update controller.");
-                return;
-            }
-
+        if (mainMenuPanel != null)
+            mainMenuPanel.SetActive(false);
+        if (patchedInputPanel != null)
             patchedInputPanel.SetActive(false);
-            _patchedUpdateMode = false;
-            QuestUpdateManifest updateManifest = _pendingUpdateManifest;
-            _pendingUpdateManifest = null;
-            _afterInstallController.BeginPatchedApkUpdate(extractedUrl, updateManifest);
-            return;
-        }
-
-        QuestUpdateManager manager = GetUpdateManager();
-        patchedInputPanel.SetActive(false);
-        downloadPanel.SetActive(true);
+        if (downloadPanel != null)
+            downloadPanel.SetActive(true);
 
         if (installer == null)
             installer = FindFirstObjectByType<ApkInstaller>();
@@ -123,8 +56,9 @@ public class InstallMenuController : MonoBehaviour
             return;
         }
 
-        installer.SetStatusMessage("Checking the Echo update manifest...");
-        manager.EnsureManifest((success, error) =>
+        NevrReleaseManager release = GetReleaseManager();
+        installer.SetStatusMessage("Checking the Echo update list...");
+        release.Refresh((success, error) =>
         {
             if (!success)
             {
@@ -132,83 +66,47 @@ public class InstallMenuController : MonoBehaviour
                 return;
             }
 
-            if (manager.IsManifestBaseApkInstalled() && ApkInstaller.IsEchoVrInstalled())
+            NevrArtifact apk = release.CurrentApk;
+            if (!NevrAndroid.TryReadInstalled(
+                    NevrQuestRelease.EchoPackageName,
+                    out bool installed,
+                    out NevrAndroid.PackageDetails details,
+                    out string readError))
             {
-                installer.SkipApkInstallBecauseCurrent();
+                InstallerLog.Error("INSTALLED_CHECK_FAILED | " + readError);
+                installer.SetStatusMessage("Could not check whether Echo VR is already installed: " + readError);
                 return;
             }
 
-            installer.DownloadAndInstallPatchedFromUrl(
-                extractedUrl,
-                manager.CurrentManifest);
+            NevrInstallAction action = NevrQuestRelease.Plan(
+                apk, installed, installed ? details.VersionCode : 0, installed ? details.SignerCertSha256 : null);
+            InstallerLog.Mark("INSTALL_PLAN", "action=" + action);
+            switch (action)
+            {
+                case NevrInstallAction.Install:
+                case NevrInstallAction.Update:
+                    installer.DownloadAndInstallSigned(apk, apkOnlyUpdate: false);
+                    break;
+                case NevrInstallAction.AlreadyCurrent:
+                case NevrInstallAction.NewerInstalled:
+                    installer.SkipApkInstallBecauseCurrent();
+                    break;
+                default:
+                    installer.SetStatusMessage(NevrMigrationMessages.DifferentSigner);
+                    break;
+            }
         });
     }
 
-    // Optional: back button from the patched input screen to main menu
-    public void OnBackToMenu()
+    private NevrReleaseManager GetReleaseManager()
     {
-        InstallerLog.Mark("PATCHED_INPUT_BACK");
-        if (_patchedUpdateMode)
-        {
-            _patchedUpdateMode = false;
-            _pendingUpdateManifest = null;
-            patchedInputPanel.SetActive(false);
+        if (releaseManager == null)
+            releaseManager = FindFirstObjectByType<NevrReleaseManager>();
 
-            if (_afterInstallController == null)
-                _afterInstallController = FindFirstObjectByType<AfterInstallController>();
+        if (releaseManager == null)
+            releaseManager = gameObject.AddComponent<NevrReleaseManager>();
 
-            _afterInstallController?.CancelPatchedUpdate();
-            ClearError();
-            return;
-        }
-
-        patchedInputPanel.SetActive(false);
-        mainMenuPanel.SetActive(true);
-        ClearError();
-    }
-
-    public void BeginPatchedUpdate(QuestUpdateManifest manifest)
-    {
-        InstallerLog.Mark("PATCHED_UPDATE_INPUT_SHOWN");
-        _patchedUpdateMode = true;
-        _pendingUpdateManifest = manifest;
-
-        if (mainMenuPanel != null)
-            mainMenuPanel.SetActive(false);
-        if (downloadPanel != null)
-            downloadPanel.SetActive(false);
-        if (patchedInputPanel != null)
-            patchedInputPanel.SetActive(true);
-        if (messageInput != null)
-            messageInput.text = string.Empty;
-
-        ClearError();
-    }
-
-    private string ExtractApkUrl(string message)
-    {
-        if (string.IsNullOrWhiteSpace(message))
-            return null;
-
-        foreach (Match match in UrlPattern.Matches(message))
-        {
-            string url = match.Value.TrimEnd('.', ',', ')', ']', '"', '\'');
-            if (url.IndexOf(".apk", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                return url;
-        }
-
-        return null;
-    }
-
-    private QuestUpdateManager GetUpdateManager()
-    {
-        if (updateManager == null)
-            updateManager = FindFirstObjectByType<QuestUpdateManager>();
-
-        if (updateManager == null)
-            updateManager = gameObject.AddComponent<QuestUpdateManager>();
-
-        return updateManager;
+        return releaseManager;
     }
 
     private void ShowError(string message)
@@ -218,11 +116,5 @@ public class InstallMenuController : MonoBehaviour
             errorText.text = message;
             errorText.gameObject.SetActive(true);
         }
-    }
-
-    private void ClearError()
-    {
-        if (errorText != null)
-            errorText.gameObject.SetActive(false);
     }
 }
