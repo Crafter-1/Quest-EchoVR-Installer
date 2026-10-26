@@ -47,7 +47,7 @@ public static class NevrHttpDownload
         using (var request = UnityWebRequest.Get(url))
         {
             request.timeout = requestTimeoutSeconds;
-            request.redirectLimit = 0;
+            request.redirectLimit = NevrHttpRules.RedirectLimit;
             request.downloadHandler = handler;
             UnityWebRequestAsyncOperation operation = request.SendWebRequest();
 

@@ -3,7 +3,7 @@ using System;
 // What the unsigned game-data update list (files.echovr.de/updates/quest/update.manifest)
 // may ask the installer to do. The list is not signed, so it is held to a fixed host, fixed
 // size limits and a short list of places it may write, until game-data artifacts are in the
-// signed manifest (nevr-runtime #965).
+// signed manifest (nevr-runtime #898, the reserved game-data kind).
 public static class NevrGameDataPolicy
 {
     public const string PinnedHost = "files.echovr.de";

@@ -59,7 +59,7 @@ request follows a redirect, and the APK download stops after 30 s without data o
 
 **Game data stays unsigned.** The game data download (`_data.zip`) and the asset sync from the
 files.echovr.de update list are still not covered by a signature or hashes in the signed manifest.
-They move into it once it has `game-data` artifacts (see EchoTools/nevr-runtime#965). Until then the
+They move into it once it has `game-data` artifacts (see EchoTools/nevr-runtime#898, the reserved `game-data` kind). Until then the
 update list is held to: the pinned address `https://files.echovr.de/updates/quest/update.manifest`
 (its own Base URL is ignored for downloads and must be that host), https only, no redirects,
 at most 256 KB for the list, 1000 entries, 128 MB per file and 512 MB in all, writes and deletes
