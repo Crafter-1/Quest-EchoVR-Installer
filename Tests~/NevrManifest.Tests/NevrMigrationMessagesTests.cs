@@ -99,3 +99,63 @@ public class NevrMigrationEntryPointTests
         throw new System.IO.DirectoryNotFoundException("Assets/Scripts was not found");
     }
 }
+
+// Source checks, not runtime tests: the scene classes cannot run in the test project. They
+// pin the wiring that the scene needs, because the scene has two ApkInstaller components
+// (the one the menu and Download use, and a second on the download screen with no status
+// text), and FindFirstObjectByType can return either.
+public class NevrMigrationWiringTests
+{
+    [Fact]
+    public void MigrationFromTheMenuIsGivenTheMenusInstaller()
+    {
+        string after = Source("AfterInstallController.cs");
+        Assert.Matches(@"BeginMigrationFromInstallMenu\(\s*NevrArtifact\s+apk,\s*ApkInstaller\s+installer\s*\)", after);
+
+        string menu = Source("InstallMenuController.cs");
+        Assert.Matches(@"BeginMigrationFromInstallMenu\(\s*apk,\s*installer\s*\)", menu);
+    }
+
+    [Fact]
+    public void GetApkInstallerPrefersTheOneTheDownloaderUses()
+    {
+        string body = Method(Source("AfterInstallController.cs"), "private ApkInstaller GetApkInstaller()");
+        int preferred = body.IndexOf("dataDownloader.apkInstaller", System.StringComparison.Ordinal);
+        int search = body.IndexOf("FindFirstObjectByType", System.StringComparison.Ordinal);
+        Assert.True(preferred >= 0, "GetApkInstaller does not look at dataDownloader.apkInstaller");
+        Assert.True(search < 0 || preferred < search, "GetApkInstaller searches the scene before using dataDownloader.apkInstaller");
+    }
+
+    [Fact]
+    public void AFailedMigrationStartClosesTheGateAndLeavesNothingMigrating()
+    {
+        string body = Method(Source("AfterInstallController.cs"), "private void BeginMigration(");
+        Assert.Contains("catch", body);
+        Assert.Contains("NevrInstallGate.Close()", body);
+        Assert.Contains("_migrating = false", body);
+    }
+
+    private static string Method(string source, string signature)
+    {
+        int start = source.IndexOf(signature, System.StringComparison.Ordinal);
+        Assert.True(start >= 0, "not found: " + signature);
+        int end = source.IndexOf("\n    }\n", start, System.StringComparison.Ordinal);
+        Assert.True(end > start, "end of method not found: " + signature);
+        return source.Substring(start, end - start);
+    }
+
+    private static string Source(string fileName)
+    {
+        string directory = System.AppContext.BaseDirectory;
+        while (directory != null)
+        {
+            string candidate = System.IO.Path.Combine(directory, "Assets", "Scripts", fileName);
+            if (System.IO.File.Exists(candidate))
+                return System.IO.File.ReadAllText(candidate);
+
+            directory = System.IO.Path.GetDirectoryName(directory);
+        }
+
+        throw new System.IO.FileNotFoundException(fileName);
+    }
+}

@@ -114,7 +114,7 @@ public class InstallMenuController : MonoBehaviour
             return;
         }
 
-        afterInstall.BeginMigrationFromInstallMenu(apk);
+        afterInstall.BeginMigrationFromInstallMenu(apk, installer);
     }
 
     private NevrReleaseManager GetReleaseManager()

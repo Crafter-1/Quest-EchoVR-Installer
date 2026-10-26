@@ -289,16 +289,21 @@ public class AfterInstallController : MonoBehaviour
     // The install screen's way into BeginMigration, when the Echo VR on the headset is signed
     // by someone else. Both ways in take the same path: the earlier _data.zip is removed and
     // downloaded again, and _migrating keeps Extract hidden while the old Echo VR is installed.
-    public void BeginMigrationFromInstallMenu(NevrArtifact apk)
+    // The scene has two ApkInstaller components, so the menu passes the one it is wired to
+    // instead of this class searching for one.
+    public void BeginMigrationFromInstallMenu(NevrArtifact apk, ApkInstaller installer)
     {
         InstallerLog.Mark("MIGRATION_FROM_INSTALL_MENU");
-        ApkInstaller installer = GetApkInstaller();
+        if (installer == null)
+            installer = GetApkInstaller();
+
         if (installer == null)
         {
             FinishUpdateWithError("Could not find the APK installer.");
             return;
         }
 
+        _apkInstaller = installer;
         BeginMigration(apk, installer);
     }
 
@@ -309,6 +314,23 @@ public class AfterInstallController : MonoBehaviour
     private void BeginMigration(NevrArtifact apk, ApkInstaller installer)
     {
         InstallerLog.Mark("MIGRATION_BEGIN");
+        try
+        {
+            StartMigrationSteps(apk, installer);
+        }
+        catch (System.Exception exception)
+        {
+            // The install screen has already opened the gate, so the normal data flow could
+            // start and offer Extract next to the old Echo VR. Close it and stop here.
+            InstallerLog.Error("MIGRATION_BEGIN_FAILED | " + exception.Message);
+            _migrating = false;
+            NevrInstallGate.Close();
+            FinishUpdateWithError("The move to the official build could not start (" + exception.Message + "). Nothing was changed.");
+        }
+    }
+
+    private void StartMigrationSteps(NevrArtifact apk, ApkInstaller installer)
+    {
         if (dataDownloader == null)
             dataDownloader = FindFirstObjectByType<Download>(FindObjectsInactive.Include);
 
@@ -486,8 +508,12 @@ public class AfterInstallController : MonoBehaviour
         return _releaseManager;
     }
 
+    // The scene has two ApkInstaller components. The one wired to the downloader is the one
+    // that gets the data-ready notice and has a status text, so it comes first.
     private ApkInstaller GetApkInstaller()
     {
+        if (_apkInstaller == null && dataDownloader != null)
+            _apkInstaller = dataDownloader.apkInstaller;
         if (_apkInstaller == null)
             _apkInstaller = FindFirstObjectByType<ApkInstaller>(FindObjectsInactive.Include);
         return _apkInstaller;
