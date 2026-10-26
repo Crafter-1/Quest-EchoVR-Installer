@@ -24,7 +24,7 @@ public static class NevrMigrationMessages
         return
             "The old Echo VR was removed, but the official build could not be installed (" + detail + ").\n\n" +
             "To try again, close this installer, open it again and choose Install. " +
-            "What was downloaded is kept and checked again, so it is quicker the second time.";
+            "A downloaded APK that still matches is kept and checked again; the game data download is used as it is.";
     }
 
     public const string StillInstalled =

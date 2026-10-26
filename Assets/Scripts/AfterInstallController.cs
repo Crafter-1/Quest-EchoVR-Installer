@@ -286,6 +286,22 @@ public class AfterInstallController : MonoBehaviour
         installer.DownloadAndInstallSigned(apk, apkOnlyUpdate: true);
     }
 
+    // The install screen's way into BeginMigration, when the Echo VR on the headset is signed
+    // by someone else. Both ways in take the same path: the earlier _data.zip is removed and
+    // downloaded again, and _migrating keeps Extract hidden while the old Echo VR is installed.
+    public void BeginMigrationFromInstallMenu(NevrArtifact apk)
+    {
+        InstallerLog.Mark("MIGRATION_FROM_INSTALL_MENU");
+        ApkInstaller installer = GetApkInstaller();
+        if (installer == null)
+        {
+            FinishUpdateWithError("Could not find the APK installer.");
+            return;
+        }
+
+        BeginMigration(apk, installer);
+    }
+
     // Moving from the community installer's APK. The notice to the player says the game data
     // is downloaded again, so this runs the whole data download first (the install waits for
     // it), then the uninstall and the install; the data is extracted after the install, as on

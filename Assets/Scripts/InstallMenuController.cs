@@ -96,10 +96,25 @@ public class InstallMenuController : MonoBehaviour
                     installer.SkipApkInstallBecauseCurrent();
                     break;
                 default:
-                    installer.DownloadAndInstallSigned(apk, apkOnlyUpdate: false, replaceOtherSigner: true);
+                    StartMigration(apk);
                     break;
             }
         });
+    }
+
+    // Echo VR on the headset is signed by someone else. The same migration as Check for
+    // Updates runs: a fresh game data download first, then the uninstall and the install.
+    private void StartMigration(NevrArtifact apk)
+    {
+        AfterInstallController afterInstall = FindFirstObjectByType<AfterInstallController>(FindObjectsInactive.Include);
+        if (afterInstall == null)
+        {
+            InstallerLog.Error("MIGRATION_CONTROLLER_MISSING");
+            installer.SetStatusMessage("Could not find the part of the installer that moves Echo VR to the official build, so nothing was changed.");
+            return;
+        }
+
+        afterInstall.BeginMigrationFromInstallMenu(apk);
     }
 
     private NevrReleaseManager GetReleaseManager()

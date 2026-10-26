@@ -45,3 +45,57 @@ public class NevrMigrationDataTests
         Assert.Contains("open it again", text);
     }
 }
+
+public class NevrMigrationRetryMessageTests
+{
+    [Fact]
+    public void RetryMessageSaysOnlyAMatchingApkIsCheckedAgain()
+    {
+        string text = NevrMigrationMessages.RemovedButNotInstalled("boom");
+        Assert.Contains("APK", text);
+        Assert.Contains("checked again", text);
+        Assert.Contains("game data", text);
+        Assert.Contains("as it is", text);
+        Assert.DoesNotContain("What was downloaded is kept", text);
+    }
+}
+
+public class NevrMigrationEntryPointTests
+{
+    // The scene classes cannot run in the test project, so this reads the source: a migration
+    // (replaceOtherSigner: true) may only be started by AfterInstallController.BeginMigration,
+    // which downloads the game data fresh and sets _migrating first. A second caller that
+    // goes straight to the APK installer skips both.
+    [Fact]
+    public void OnlyBeginMigrationStartsAMigration()
+    {
+        var offenders = new System.Collections.Generic.List<string>();
+        foreach (string file in System.IO.Directory.GetFiles(ScriptsDirectory(), "*.cs", System.IO.SearchOption.AllDirectories))
+        {
+            string name = System.IO.Path.GetFileName(file);
+            if (name == "AfterInstallController.cs" || name == "ApkInstaller.cs")
+                continue;
+
+            string source = System.IO.File.ReadAllText(file);
+            if (System.Text.RegularExpressions.Regex.IsMatch(source, @"replaceOtherSigner\s*:\s*true"))
+                offenders.Add(name);
+        }
+
+        Assert.True(offenders.Count == 0, "starts a migration without BeginMigration: " + string.Join(", ", offenders));
+    }
+
+    private static string ScriptsDirectory()
+    {
+        string directory = System.AppContext.BaseDirectory;
+        while (directory != null)
+        {
+            string candidate = System.IO.Path.Combine(directory, "Assets", "Scripts");
+            if (System.IO.Directory.Exists(candidate))
+                return candidate;
+
+            directory = System.IO.Path.GetDirectoryName(directory);
+        }
+
+        throw new System.IO.DirectoryNotFoundException("Assets/Scripts was not found");
+    }
+}
