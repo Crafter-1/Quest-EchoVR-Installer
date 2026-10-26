@@ -56,7 +56,9 @@ public class NevrManifestTests
         "expiresBeforeGenerated", "noChannels", "channelToMissing", "channelName", "badRevoked",
         "tagMismatch", "buildIdMismatch", "pathDotDot", "pathOtherVersion", "pathOtherName",
         "shaUpper", "size0", "sizeString", "sizeFloat", "noAndroid", "otherPackage", "versionCode0",
-        "certBad", "platformWindows", "noReleases", "releaseKeyBad"
+        "certBad", "platformWindows", "noReleases", "releaseKeyBad",
+        "pathTrailingNewline", "shaTrailingNewline", "certTrailingNewline", "commitTrailingNewline",
+        "revokedTrailingNewline", "channelNameTrailingNewline", "releaseKeyTrailingNewline"
     };
 
     [Theory]
@@ -95,6 +97,13 @@ public class NevrManifestTests
                 case "certBad": apk["android"]["signer_cert_sha256"] = "abc"; break;
                 case "platformWindows": apk["platform"] = "windows-x86_64"; break;
                 case "noReleases": r["releases"] = new JObject(); break;
+                case "pathTrailingNewline": apk["path"] = apk.Value<string>("path") + "\n"; break;
+                case "shaTrailingNewline": apk["sha256"] = apk.Value<string>("sha256") + "\n"; break;
+                case "certTrailingNewline": apk["android"]["signer_cert_sha256"] = new string('a', 64) + "\n"; break;
+                case "commitTrailingNewline": r["releases"]["5.5.1"]["commit"] = r["releases"]["5.5.1"].Value<string>("commit") + "\n"; break;
+                case "revokedTrailingNewline": r["revoked_keys"] = new JArray("343d0247859ceec0\n"); break;
+                case "channelNameTrailingNewline": r["channels"]["beta\n"] = "5.5.1"; break;
+                case "releaseKeyTrailingNewline": ((JObject)r["releases"]).Add("5.5.2\n", r["releases"]["5.5.1"].DeepClone()); break;
                 case "releaseKeyBad": ((JObject)r["releases"]).Add("5.05.1", r["releases"]["5.5.1"].DeepClone()); break;
             }
         });
