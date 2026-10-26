@@ -18,7 +18,7 @@ public class InstallMenuController : MonoBehaviour
     public NevrReleaseManager releaseManager;
 
     [Header("Discord link")]
-    public string discordUrl = "https://discord.gg/X5Bx4fDdBG";
+    public string discordUrl = "https://discord.gg/Rs8CQvjDv";
     public void OnOpenDiscord()
     {
         Application.OpenURL(discordUrl);
