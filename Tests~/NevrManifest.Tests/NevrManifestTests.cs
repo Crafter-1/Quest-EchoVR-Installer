@@ -44,7 +44,7 @@ public class NevrManifestTests
         byte[] bytes = Fixtures.Edit(r =>
         {
             r["future_member"] = new JObject { ["a"] = 1 };
-            ((JArray)r["releases"]["5.5.1"]["artifacts"]).Add(new JObject { ["kind"] = "game-data", ["x"] = 1 });
+            ((JArray)r["releases"]["5.5.1"]["artifacts"]).Add(new JObject { ["kind"] = "future-kind", ["x"] = 1 });
         });
         Assert.True(Parse(bytes, out NevrManifest m, out string error), error);
         Assert.Single(m.Releases["5.5.1"].Artifacts);

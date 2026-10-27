@@ -287,7 +287,7 @@ public class AfterInstallController : MonoBehaviour
     }
 
     // The install screen's way into BeginMigration, when the Echo VR on the headset is signed
-    // by someone else. Both ways in take the same path: the earlier _data.zip is removed and
+    // by someone else. Both ways in take the same path: the earlier game-data zip is removed and
     // downloaded again, and _migrating keeps Extract hidden while the old Echo VR is installed.
     // The scene has two ApkInstaller components, so the menu passes the one it is wired to
     // instead of this class searching for one.
