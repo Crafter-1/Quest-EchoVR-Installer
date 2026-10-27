@@ -11,7 +11,6 @@ For full instructions on how to install this on your quest, please read https://
 
 ## Notes
 For this you need to be in the Echo VR lounge discord. (https://discord.gg/X5Bx4fDdBG)
-For the patched method you need to be in the patcher server. (https://discord.gg/Rs8CQvjDv)
 This is built for the Meta Quest headsets, this will not work on a regular android device.
 
 ## Signed release manifest (verifier core)
@@ -40,3 +39,31 @@ Dependencies, pinned: `BouncyCastle.Cryptography` 2.7.0 (netstandard2.0 DLL in
 stripped. IL2CPP on a headset is untested.
 
 Run the tests: `dotnet test Tests~/NevrManifest.Tests`.
+
+## Installing and updating Echo VR (signed APK)
+
+Both install buttons install the Quest APK that the signed release manifest names for the
+`beta` channel (`NevrReleaseManager.channel`). The installer checks the manifest (see above),
+downloads the APK from `https://evr.echo.taxi/nevr-runtime/<path>` stopping at the manifest's
+`size`, checks the SHA-256 and size, then asks Android for the file's package name,
+versionCode and signer certificate and compares them with the manifest before it hands the
+file to Android's installer. The manifest must name `signer_cert_sha256`; an APK entry without
+it is refused.
+
+Before the install intent the APK is hashed and read again (it sits on external storage while
+the game data downloads), and after Android's installer returns the installed package's signer
+certificate must equal `signer_cert_sha256`; a mismatch stops the setup with a plain message.
+Nothing, including the game-data download, starts until the manifest has been accepted. No
+request follows a redirect, and the APK download stops after 30 s without data or 60 min in all.
+
+**Game data stays unsigned.** The game data download (`_data.zip`) and the asset sync from the
+files.echovr.de update list are still not covered by a signature or hashes in the signed manifest.
+They move into it once it has `game-data` artifacts (see EchoTools/nevr-runtime#898, the reserved `game-data` kind). Until then the
+update list is held to: the pinned address `https://files.echovr.de/updates/quest/update.manifest`
+(its own Base URL is ignored for downloads and must be that host), https only, no redirects,
+at most 256 KB for the list, 1000 entries, 128 MB per file and 512 MB in all, writes and deletes
+only under `asset_patches/` and `files/` in Echo's media folder, no hidden files, no `.so`, `.dex`,
+`.apk`, `.jar`, `.dll` or other program files, and the existing path-traversal guard. The `_data.zip`
+download itself is https now but uncapped and unhashed.
+
+Android reads the APK's signer on API 28+. This code has not run on a headset yet.
