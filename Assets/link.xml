@@ -1,0 +1,19 @@
+<linker>
+  <!-- Keep what the manifest check uses, so managed stripping cannot remove it in an
+       IL2CPP build. IL2CPP on a headset is untested. -->
+  <assembly fullname="BouncyCastle.Cryptography">
+    <type fullname="Org.BouncyCastle.Crypto.Signers.Ed25519Signer" preserve="all"/>
+    <type fullname="Org.BouncyCastle.Crypto.Parameters.Ed25519PublicKeyParameters" preserve="all"/>
+    <type fullname="Org.BouncyCastle.Crypto.Digests.Blake2bDigest" preserve="all"/>
+    <namespace fullname="Org.BouncyCastle.Math.EC.Rfc8032" preserve="all"/>
+    <namespace fullname="Org.BouncyCastle.Math.EC.Rfc7748" preserve="all"/>
+  </assembly>
+  <assembly fullname="Newtonsoft.Json">
+    <type fullname="Newtonsoft.Json.JsonTextReader" preserve="all"/>
+    <type fullname="Newtonsoft.Json.Linq.JObject" preserve="all"/>
+    <type fullname="Newtonsoft.Json.Linq.JArray" preserve="all"/>
+    <type fullname="Newtonsoft.Json.Linq.JValue" preserve="all"/>
+    <type fullname="Newtonsoft.Json.Linq.JProperty" preserve="all"/>
+    <type fullname="Newtonsoft.Json.Linq.JToken" preserve="all"/>
+  </assembly>
+</linker>

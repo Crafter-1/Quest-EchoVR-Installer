@@ -106,3 +106,8 @@ InitTestScene*.unity*
 /[Aa]ssets/[Ss]ceneDependencyCache*
 Assets/CONTROLLER_MODEL_SETUP_GUIDE.md
 Assets/.continue/rules/new-rule.md
+
+# NEVR manifest tests (dotnet)
+/Tests~/**/bin/
+/Tests~/**/obj/
+!/Tests~/**/*.csproj
