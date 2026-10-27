@@ -3,16 +3,20 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
-using UnityEngine.Networking;
 
 public class QuestUpdateManager : MonoBehaviour
 {
     public const string EchoPackageName = "com.readyatdawn.r15";
-    public const string DefaultManifestUrl =
-        "https://files.echovr.de/updates/quest/update.manifest";
+    public const string DefaultManifestUrl = NevrGameDataPolicy.ManifestUrl;
 
-    [Header("Update manifest")]
+    // Kept so the scene's serialized value stays valid. It is not used: the game-data list
+    // is fetched from the pinned address only (NevrGameDataPolicy).
+    [Header("Update manifest (address is pinned in code)")]
     public string manifestUrl = DefaultManifestUrl;
+
+    private const double AssetStallSeconds = 30;
+    private const double AssetTotalSeconds = 1800;
+    private const double ManifestStallSeconds = 15;
 
     public QuestUpdateManifest CurrentManifest { get; private set; }
     public string TargetRoot => GetTargetRoot();
@@ -23,7 +27,7 @@ public class QuestUpdateManager : MonoBehaviour
 
     public void EnsureManifest(Action<bool, string> onComplete)
     {
-        InstallerLog.Mark("MANIFEST_REQUEST", "url=" + manifestUrl);
+        InstallerLog.Mark("MANIFEST_REQUEST", "url=" + NevrGameDataPolicy.ManifestUrl);
         if (CurrentManifest != null)
         {
             onComplete?.Invoke(true, null);
@@ -80,6 +84,7 @@ public class QuestUpdateManager : MonoBehaviour
         }
 
         int total = CurrentManifest.Entries.Count;
+        long downloadedTotal = 0;
         for (int index = 0; index < total; index++)
         {
             QuestUpdateEntry entry = CurrentManifest.Entries[index];
@@ -90,8 +95,10 @@ public class QuestUpdateManager : MonoBehaviour
                 index,
                 total);
 
-            if (!TryResolveTargetPath(root, entry.AssetPath, out string destination))
+            if (!TryResolveTargetPath(root, entry.AssetPath, out string destination) ||
+                !NevrGameDataPolicy.IsAllowedPath(entry.AssetPath, out _))
             {
+                InstallerLog.Error("ASSET_PATH_REFUSED | " + entry.AssetPath);
                 onComplete?.Invoke(false, $"The manifest contained an unsafe path: {entry.AssetPath}");
                 yield break;
             }
@@ -151,24 +158,42 @@ public class QuestUpdateManager : MonoBehaviour
                 yield break;
             }
 
-            Uri assetUrl = new Uri(
-                CurrentManifest.BaseUrl.TrimEnd('/') + "/" + entry.AssetPath);
-
-            using (var request = UnityWebRequest.Get(assetUrl))
+            FileStream assetStream;
+            try
             {
-                request.timeout = 0;
-                request.downloadHandler = new DownloadHandlerFile(temporaryPath, true);
-                yield return request.SendWebRequest();
-
-                if (request.result != UnityWebRequest.Result.Success)
-                {
-                InstallerLog.Error("ASSET_DOWNLOAD_FAILED | " + entry.AssetPath + " | " + request.error);
-                    TryDelete(temporaryPath);
-                    onComplete?.Invoke(false,
-                        $"Could not download {entry.AssetPath}: {request.error}");
-                    yield break;
-                }
+                assetStream = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None);
             }
+            catch (Exception exception)
+            {
+                onComplete?.Invoke(false, $"Could not prepare {entry.AssetPath}: {exception.Message}");
+                yield break;
+            }
+
+            long allowed = Math.Min(
+                NevrGameDataPolicy.MaxAssetBytes, NevrGameDataPolicy.MaxTotalBytes - downloadedTotal);
+            if (allowed <= 0)
+            {
+                assetStream.Dispose();
+                TryDelete(temporaryPath);
+                onComplete?.Invoke(false, "The game-data update is larger than the installer allows, so it stopped.");
+                yield break;
+            }
+
+            var outcome = new NevrHttpOutcome();
+            yield return NevrHttpDownload.Get(
+                NevrGameDataPolicy.BuildAssetUrl(entry.AssetPath), assetStream, allowed, false, 0,
+                AssetStallSeconds, AssetTotalSeconds, outcome);
+
+            if (outcome.Failure != null)
+            {
+                InstallerLog.Error("ASSET_DOWNLOAD_FAILED | " + entry.AssetPath + " | http=" +
+                                   outcome.ResponseCode + " | " + outcome.Failure);
+                TryDelete(temporaryPath);
+                onComplete?.Invoke(false, $"Could not download {entry.AssetPath}: {outcome.Failure}");
+                yield break;
+            }
+
+            downloadedTotal += outcome.Received;
 
             string downloadedHash = null;
             string downloadedHashError = null;
@@ -214,33 +239,6 @@ public class QuestUpdateManager : MonoBehaviour
         return InstallVersionMarker.TryReadFinal(GetTargetRoot(), out marker);
     }
 
-    public bool IsManifestBaseApkInstalled()
-    {
-        if (CurrentManifest == null ||
-            !InstallVersionMarker.TryReadFinal(
-                GetTargetRoot(),
-                out InstallVersionMarkerData marker))
-            return false;
-
-        return string.Equals(
-            marker.BaseSha256,
-            CurrentManifest.BaseApkSha256,
-            StringComparison.OrdinalIgnoreCase);
-    }
-
-    public string[] GetBaseApkMirrors()
-    {
-        if (CurrentManifest == null)
-            return Array.Empty<string>();
-
-        string fileName = Uri.EscapeDataString(CurrentManifest.BaseApkFileName);
-        return new[]
-        {
-            "https://files.echovr.de/" + fileName,
-            "https://evr.echo.taxi/" + fileName
-        };
-    }
-
     public static int GetInstalledEchoVersionCode()
     {
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -270,29 +268,33 @@ public class QuestUpdateManager : MonoBehaviour
         bool success = false;
         string error = null;
 
-        using (var request = UnityWebRequest.Get(manifestUrl))
-        {
-            request.timeout = 20;
-            yield return request.SendWebRequest();
+        var buffer = new MemoryStream();
+        var outcome = new NevrHttpOutcome();
+        yield return NevrHttpDownload.Get(
+            NevrGameDataPolicy.ManifestUrl, buffer, NevrGameDataPolicy.MaxManifestBytes, false, 20,
+            ManifestStallSeconds, 20, outcome);
 
-            if (request.result != UnityWebRequest.Result.Success)
-            {
-                InstallerLog.Error("MANIFEST_FETCH_FAILED | " + request.result + " | " + request.error);
-                error = $"Could not download the Echo update manifest: {request.error}";
-            }
-            else if (!QuestUpdateManifest.TryParse(
-                         request.downloadHandler.text,
-                         out QuestUpdateManifest parsed,
-                         out error))
-            {
-                error = "Invalid Echo update manifest: " + error;
-            }
-            else
-            {
-                CurrentManifest = parsed;
-                success = true;
-                InstallerLog.Mark("MANIFEST_FETCH_SUCCESS", "entries=" + parsed.Entries.Count);
-            }
+        if (outcome.Failure != null)
+        {
+            InstallerLog.Error("MANIFEST_FETCH_FAILED | http=" + outcome.ResponseCode + " | " + outcome.Failure);
+            error = "Could not download the Echo update manifest: " + outcome.Failure;
+        }
+        else if (!QuestUpdateManifest.TryParse(
+                     System.Text.Encoding.UTF8.GetString(buffer.ToArray()),
+                     out QuestUpdateManifest parsed,
+                     out error))
+        {
+            error = "Invalid Echo update manifest: " + error;
+        }
+        else if ((error = NevrGameDataPolicy.Check(parsed)) != null)
+        {
+            InstallerLog.Error("MANIFEST_REFUSED | " + error);
+        }
+        else
+        {
+            CurrentManifest = parsed;
+            success = true;
+            InstallerLog.Mark("MANIFEST_FETCH_SUCCESS", "entries=" + parsed.Entries.Count);
         }
 
         _manifestRequestRunning = false;

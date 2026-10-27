@@ -34,8 +34,9 @@ public class AfterInstallController : MonoBehaviour
     private TMP_Text _centerButtonLabel;
     private QuestUpdateManager _updateManager;
     private ApkInstaller _apkInstaller;
-    private InstallMenuController _installMenuController;
+    private NevrReleaseManager _releaseManager;
     private Coroutine _installCompletionMonitor;
+    private string _installRejectedMessage;
 
     private void Start()
     {
@@ -145,9 +146,40 @@ public class AfterInstallController : MonoBehaviour
         }
 
         if (_apkUpdateInProgress)
+        {
             StartCoroutine(CompleteApkUpdateAfterReturn());
-        else
-            RefreshState();
+            return;
+        }
+
+        // A package named Echo VR is on the headset. Before anything else is set up for it,
+        // confirm it is the APK that was verified: same version, signed by the manifest's key.
+        ApkInstaller installer = GetApkInstaller();
+        string notConfirmed = installer == null
+            ? "The installer could not check the Echo VR that was installed."
+            : installer.CheckPendingApkInstalled();
+        if (notConfirmed != null)
+        {
+            RejectInstall(notConfirmed);
+            return;
+        }
+
+        _installRejectedMessage = null;
+        RefreshState();
+    }
+
+    private void RejectInstall(string message)
+    {
+        InstallerLog.Error("INSTALL_REJECTED | " + message);
+        _installRejectedMessage = message;
+        _dataReady = false;
+        PlayerPrefs.SetInt(DataReadyPreference, 0);
+        PlayerPrefs.Save();
+
+        if (afterInstallPanel != null)
+            afterInstallPanel.SetActive(true);
+
+        SetButtonMode(showExtract: false, showFinalActions: false);
+        SetStatus(message);
     }
 
     private void HandleCenterButton()
@@ -172,70 +204,67 @@ public class AfterInstallController : MonoBehaviour
         SetUpdateBusy(true, "[CHECKING...]");
         SetStatus("Checking for Echo VR updates...");
 
-        QuestUpdateManager manager = GetUpdateManager();
-        bool manifestFinished = false;
-        bool manifestSucceeded = false;
-        string manifestError = null;
-        manager.RefreshManifest((success, error) =>
+        NevrReleaseManager release = GetReleaseManager();
+        bool finished = false;
+        bool succeeded = false;
+        string releaseError = null;
+        release.Refresh((success, error) =>
         {
-            manifestSucceeded = success;
-            manifestError = error;
-            manifestFinished = true;
+            succeeded = success;
+            releaseError = error;
+            finished = true;
         });
 
-        yield return new WaitUntil(() => manifestFinished);
-        if (!manifestSucceeded)
+        yield return new WaitUntil(() => finished);
+        if (!succeeded)
         {
-            InstallerLog.Error("UPDATE_CHECK_MANIFEST_FAILED | " + manifestError);
-            FinishUpdateWithError(manifestError ?? "Could not check for updates.");
+            InstallerLog.Error("UPDATE_CHECK_MANIFEST_FAILED | " + releaseError);
+            FinishUpdateWithError(releaseError ?? "Could not check for updates.");
             yield break;
         }
 
-        if (!manager.TryGetInstalledMarker(out InstallVersionMarkerData marker))
+        NevrInstallGate.Open();
+        NevrArtifact apk = release.CurrentApk;
+        if (!NevrAndroid.TryReadInstalled(
+                NevrQuestRelease.EchoPackageName,
+                out bool installed,
+                out NevrAndroid.PackageDetails details,
+                out string readError))
         {
-            FinishUpdateWithError(
-                "This installation has no version marker, so its APK cannot be updated safely.");
+            FinishUpdateWithError("Could not check which Echo VR is installed: " + readError);
             yield break;
         }
 
-        bool apkAlreadyCurrent = string.Equals(
-            marker.BaseSha256,
-            manager.CurrentManifest.BaseApkSha256,
-            StringComparison.OrdinalIgnoreCase);
-
-        if (apkAlreadyCurrent)
+        NevrInstallAction action = NevrQuestRelease.Plan(
+            apk, installed, installed ? details.VersionCode : 0, installed ? details.SignerCertSha256 : null);
+        InstallerLog.Mark("UPDATE_PLAN", "action=" + action);
+        switch (action)
         {
-            InstallerLog.Mark("UPDATE_APK_CURRENT");
-            yield return SynchronizeUpdateAssets(
-                finalizeInstallMarker: false,
-                successMessage: "Echo VR is up to date. All update assets were verified.");
-            yield break;
+            case NevrInstallAction.AlreadyCurrent:
+                InstallerLog.Mark("UPDATE_APK_CURRENT");
+                yield return SynchronizeUpdateAssets(
+                    finalizeInstallMarker: false,
+                    successMessage: "Echo VR is up to date. All update assets were verified.");
+                break;
+            case NevrInstallAction.NewerInstalled:
+                FinishUpdateWithError(
+                    "The Echo VR on this headset is newer than the release on the update list, so nothing was changed.");
+                break;
+            case NevrInstallAction.Update:
+                BeginSignedApkUpdate(apk);
+                break;
+            case NevrInstallAction.Install:
+                FinishUpdateWithError("Echo VR is not installed on this headset. Use the install screen first.");
+                break;
+            default:
+                FinishUpdateWithError(NevrMigrationMessages.DifferentSigner);
+                break;
         }
-
-        if (marker.Patched)
-        {
-            InstallerLog.Mark("UPDATE_PATCHED_APK_REQUIRED");
-            _installMenuController = FindFirstObjectByType<InstallMenuController>();
-            if (_installMenuController == null)
-            {
-                FinishUpdateWithError("Could not open the patched APK update screen.");
-                yield break;
-            }
-
-            SetStatus("A new Echo APK is available. Paste its patched APK link to continue.");
-            if (afterInstallPanel != null)
-                afterInstallPanel.SetActive(false);
-
-            _installMenuController.BeginPatchedUpdate(manager.CurrentManifest);
-            yield break;
-        }
-
-        BeginLegacyApkUpdate(manager.CurrentManifest);
     }
 
-    private void BeginLegacyApkUpdate(QuestUpdateManifest manifest)
+    private void BeginSignedApkUpdate(NevrArtifact apk)
     {
-        InstallerLog.Mark("UPDATE_LEGACY_APK_REQUIRED");
+        InstallerLog.Mark("UPDATE_SIGNED_APK_REQUIRED");
         ApkInstaller installer = GetApkInstaller();
         if (installer == null)
         {
@@ -244,38 +273,7 @@ public class AfterInstallController : MonoBehaviour
         }
 
         BeginApkUpdateDisplay();
-        installer.DownloadAndInstallUpdateFromManifest(
-            manifest,
-            GetUpdateManager().GetBaseApkMirrors());
-    }
-
-    public void BeginPatchedApkUpdate(
-        string apkUrl,
-        QuestUpdateManifest manifest)
-    {
-        InstallerLog.Mark("UPDATE_PATCHED_APK_SUBMITTED");
-        ApkInstaller installer = GetApkInstaller();
-        if (installer == null)
-        {
-            CancelPatchedUpdate("Could not find the APK installer.");
-            return;
-        }
-
-        BeginApkUpdateDisplay();
-        installer.DownloadAndInstallPatchedUpdateFromUrl(apkUrl, manifest);
-    }
-
-    public void CancelPatchedUpdate(string message = null)
-    {
-        _apkUpdateInProgress = false;
-        SetUpdateBusy(false);
-
-        if (afterInstallPanel != null)
-            afterInstallPanel.SetActive(true);
-
-        RefreshState();
-        if (!string.IsNullOrWhiteSpace(message))
-            SetStatus(message);
+        installer.DownloadAndInstallSigned(apk, apkOnlyUpdate: true);
     }
 
     private void BeginApkUpdateDisplay()
@@ -304,12 +302,15 @@ public class AfterInstallController : MonoBehaviour
             afterInstallPanel.SetActive(true);
 
         ApkInstaller installer = GetApkInstaller();
-        if (installer == null || !installer.IsPendingApkInstalled())
+        string notConfirmed = installer == null
+            ? "The installer could not check the Echo VR that was installed."
+            : installer.CheckPendingApkInstalled();
+        if (notConfirmed != null)
         {
-            InstallerLog.Error("APK_UPDATE_NOT_CONFIRMED");
+            InstallerLog.Error("APK_UPDATE_NOT_CONFIRMED | " + notConfirmed);
             _apkUpdateInProgress = false;
             FinishUpdateWithError(
-                "The APK update was not installed. You can select Check for Updates to retry.");
+                "The APK update was not confirmed: " + notConfirmed + " You can select Check for Updates to retry.");
             yield break;
         }
 
@@ -400,6 +401,16 @@ public class AfterInstallController : MonoBehaviour
         return _updateManager;
     }
 
+    private NevrReleaseManager GetReleaseManager()
+    {
+        if (_releaseManager == null)
+            _releaseManager = FindFirstObjectByType<NevrReleaseManager>();
+        if (_releaseManager == null)
+            _releaseManager = gameObject.AddComponent<NevrReleaseManager>();
+
+        return _releaseManager;
+    }
+
     private ApkInstaller GetApkInstaller()
     {
         if (_apkInstaller == null)
@@ -434,15 +445,45 @@ public class AfterInstallController : MonoBehaviour
                 afterInstallPanel.SetActive(false);
 
             SetDownloadPanelVisible(true);
-            SetStatus("Echo VR is installed. Downloading the missing game data...");
+            StartCoroutine(AcceptManifestThenDownloadData());
         }
 
         return true;
     }
 
+    // The missing game data is only downloaded once the signed manifest is accepted, the
+    // same as on a fresh install.
+    private IEnumerator AcceptManifestThenDownloadData()
+    {
+        NevrInstallGate.Close();
+        SetStatus("Echo VR is installed. Checking the Echo update list...");
+
+        bool finished = false;
+        bool succeeded = false;
+        string releaseError = null;
+        GetReleaseManager().Refresh((success, error) =>
+        {
+            succeeded = success;
+            releaseError = error;
+            finished = true;
+        });
+
+        yield return new WaitUntil(() => finished);
+        if (!succeeded)
+        {
+            InstallerLog.Error("EXISTING_INSTALL_MANIFEST_FAILED | " + releaseError);
+            SetStatus(releaseError ?? "Could not check the Echo update list, so the missing game data was not downloaded.");
+            yield break;
+        }
+
+        NevrInstallGate.Open();
+        SetStatus("Echo VR is installed. Downloading the missing game data...");
+    }
+
     public void NotifyInstallFlowStarted()
     {
         InstallerLog.Mark("ANDROID_INSTALL_STARTED");
+        _installRejectedMessage = null;
         _installFlowStarted = true;
         if (_installCompletionMonitor != null)
             StopCoroutine(_installCompletionMonitor);
@@ -487,6 +528,12 @@ public class AfterInstallController : MonoBehaviour
     public void ExtractGameData()
     {
         InstallerLog.Mark("EXTRACT_BUTTON_PRESSED");
+        if (_installRejectedMessage != null)
+        {
+            SetStatus(_installRejectedMessage);
+            return;
+        }
+
         if (dataDownloader == null)
             dataDownloader = FindFirstObjectByType<Download>();
 
@@ -632,6 +679,12 @@ public class AfterInstallController : MonoBehaviour
 
     public void RefreshState()
     {
+        if (_installRejectedMessage != null)
+        {
+            SetStatus(_installRejectedMessage);
+            return;
+        }
+
         bool echoInstalled = IsEchoInstalled();
 
         if (echoInstalled && _dataReady)

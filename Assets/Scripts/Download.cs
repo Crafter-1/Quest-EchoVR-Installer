@@ -15,12 +15,18 @@ public class Download : MonoBehaviour
     public QuestUpdateManager updateManager;
 
     [Header("Server")] public string[] ServerLocations =
-        { "http://evr.echo.taxi", "http://files.echovr.de"};
+        { "https://evr.echo.taxi", "https://files.echovr.de"};
 
     [Header("Config")] public int TestTimeMs = 2000;
     public int TimeoutMs = 2000; // only used for the quick server speed test
     public int DownloadThreshold = 200;
     public int BatchSize = 5;
+
+    [Tooltip("The data download stops after this long without receiving a byte.")]
+    public double DataStallSeconds = 60;
+
+    [Tooltip("The data download stops after this long in all (6 hours).")]
+    public double DataTotalSeconds = 6 * 3600;
 
     [Header("File")] public string EvrVersion = "4987570";
     public string DownloadFileName = "_data.zip";
@@ -47,6 +53,24 @@ public class Download : MonoBehaviour
     private bool _suppressAutomaticDataDownload;
 
     public void Start()
+    {
+        StartCoroutine(BeginWhenManifestAccepted());
+    }
+
+    // Nothing downloads, and nothing is offered to the installer, until the signed manifest
+    // has been fetched and accepted.
+    private IEnumerator BeginWhenManifestAccepted()
+    {
+        if (!NevrInstallGate.IsOpen)
+            InstallerLog.Mark("DOWNLOAD_WAITING_FOR_MANIFEST");
+
+        while (!NevrInstallGate.IsOpen)
+            yield return null;
+
+        BeginDataFlow();
+    }
+
+    private void BeginDataFlow()
     {
         InstallerLog.Mark("DOWNLOAD_START", "version=" + EvrVersion);
         InitializePaths();
@@ -172,7 +196,7 @@ public class Download : MonoBehaviour
 
         var speed = 0f;
 
-        if (request.result == UnityWebRequest.Result.Success)
+        if (request.result == UnityWebRequest.Result.Success && NevrHttpRules.RefusalFor(request.responseCode) == null)
         {
             var duration = Time.time - start;
             if (duration > 0f)
@@ -206,11 +230,14 @@ public class Download : MonoBehaviour
         var path = Path.Combine(DownloadDirectory, DownloadFileName);
         var temporaryPath = path + ".part";
 
+        FileStream target;
         try
         {
             Directory.CreateDirectory(DownloadDirectory);
             if (File.Exists(temporaryPath))
                 File.Delete(temporaryPath);
+
+            target = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None);
         }
         catch (Exception exception)
         {
@@ -219,28 +246,25 @@ public class Download : MonoBehaviour
             yield break;
         }
 
-        using (var request = UnityWebRequest.Get(_url))
-        {
-            request.timeout = 0; // no timeout - large files need to run to completion
-            request.downloadHandler = new DownloadHandlerFile(temporaryPath, true);
-            request.SendWebRequest();
-
-            while (!request.isDone)
+        // The same download rules as the APK: https only, no redirect followed, and a stall
+        // watchdog. There is no size cap or hash yet (the zip is not in the signed manifest),
+        // and no request timeout - large files need to run to completion.
+        var outcome = new NevrHttpOutcome();
+        yield return NevrHttpDownload.Get(
+            _url, target, long.MaxValue, false, 0, DataStallSeconds, DataTotalSeconds, outcome,
+            received =>
             {
                 if (fileSize > 0)
-                    _progress = (int)(request.downloadedBytes / 1048576);
+                    _progress = (int)(received / 1048576);
+            });
 
-                yield return null;
-            }
-
-            if (request.result != UnityWebRequest.Result.Success)
-            {
-                InstallerLog.Error("DATA_DOWNLOAD_FAILED | " + request.result + " | " + request.error);
-                _title = "Download failed";
-                _lastError = $"{request.result}: {request.error}";
-                Debug.LogError($"[Download] Data download failed: {request.result} - {request.error} (url: {_url})");
-                yield break;
-            }
+        if (outcome.Failure != null)
+        {
+            InstallerLog.Error("DATA_DOWNLOAD_FAILED | HTTP " + outcome.ResponseCode + " | " + outcome.Failure);
+            _title = "Download failed";
+            _lastError = outcome.Failure;
+            Debug.LogError($"[Download] Data download failed: {outcome.Failure} (url: {_url})");
+            yield break;
         }
 
         if (!TryReplaceDownloadedFile(temporaryPath, path, out string replaceError))
@@ -294,6 +318,7 @@ public class Download : MonoBehaviour
     private UnityWebRequest CreateTestRequest(UnityWebRequest request)
     {
         request.timeout = TimeoutMs / 1000;
+        request.redirectLimit = NevrHttpRules.RedirectLimit;
         return request;
     }
 
@@ -499,9 +524,12 @@ public class Download : MonoBehaviour
     private static IEnumerator GetFileSize(string url, Action<int> onComplete)
     {
         using var request = UnityWebRequest.Head(url);
+        request.redirectLimit = NevrHttpRules.RedirectLimit;
         yield return request.SendWebRequest();
 
-        if (!int.TryParse(request.GetResponseHeader("Content-Length"), out var size))
+        // The size is only for the progress display; a redirect or an error leaves it unknown.
+        if (NevrHttpRules.RefusalFor(request.responseCode) != null
+            || !int.TryParse(request.GetResponseHeader("Content-Length"), out var size))
             size = 0;
 
         onComplete?.Invoke(size);

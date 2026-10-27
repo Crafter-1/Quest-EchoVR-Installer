@@ -13,6 +13,7 @@ public sealed class InstallVersionMarkerData
     public string InstallerVersion;
     public bool Trusted;
     public int PackageVersionCode;
+    public string SignerCertSha256;
 }
 
 public static class InstallVersionMarker
@@ -23,26 +24,24 @@ public static class InstallVersionMarker
     private static string PendingPath =>
         Path.Combine(Application.persistentDataPath, PendingFileName);
 
-    public static bool SavePending(
-        QuestUpdateManifest manifest,
-        string installedSha256,
-        bool patched,
-        bool trusted,
+    public static bool SavePendingSigned(
+        NevrArtifact apk,
         int packageVersionCode,
         out string error)
     {
         var data = new InstallVersionMarkerData
         {
-            BaseApk = manifest.BaseApkFileName,
-            BaseSha256 = manifest.BaseApkSha256,
-            InstalledSha256 = installedSha256,
-            Patched = patched,
+            BaseApk = apk.Name,
+            BaseSha256 = apk.Sha256,
+            InstalledSha256 = apk.Sha256,
+            Patched = false,
             InstalledAt = DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
             InstallerVersion = string.IsNullOrWhiteSpace(Application.version)
                 ? "unknown"
                 : Application.version,
-            Trusted = trusted,
-            PackageVersionCode = packageVersionCode
+            Trusted = true,
+            PackageVersionCode = packageVersionCode,
+            SignerCertSha256 = apk.AndroidSignerCertSha256
         };
 
         return WriteAtomic(PendingPath, Serialize(data, includeTrusted: true), out error);
@@ -142,7 +141,10 @@ public static class InstallVersionMarker
                                          out string packageVersion) &&
                                      int.TryParse(packageVersion, out int parsedVersion)
                     ? parsedVersion
-                    : 0
+                    : 0,
+                SignerCertSha256 = values.TryGetValue("signer_cert_sha256", out string signer)
+                    ? signer
+                    : string.Empty
             };
             return true;
         }
@@ -168,6 +170,7 @@ public static class InstallVersionMarker
         {
             text += $"trusted={data.Trusted.ToString().ToLowerInvariant()}\n";
             text += $"package_version_code={data.PackageVersionCode}\n";
+            text += $"signer_cert_sha256={Sanitize(data.SignerCertSha256)}\n";
         }
 
         return text;
