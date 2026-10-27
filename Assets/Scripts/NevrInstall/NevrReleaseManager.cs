@@ -13,6 +13,11 @@ public class NevrReleaseManager : MonoBehaviour
     public NevrRelease CurrentRelease { get; private set; }
     public NevrArtifact CurrentApk { get; private set; }
 
+    // The release's game-data zip, or null with GameDataError saying why there is none. A
+    // release without one still installs its APK; the game-data download then refuses to start.
+    public NevrArtifact CurrentGameData { get; private set; }
+    public string GameDataError { get; private set; }
+
     private bool _running;
     private readonly List<Action<bool, string>> _callbacks = new List<Action<bool, string>>();
 
@@ -32,6 +37,8 @@ public class NevrReleaseManager : MonoBehaviour
         CurrentManifest = null;
         CurrentRelease = null;
         CurrentApk = null;
+        CurrentGameData = null;
+        GameDataError = "The update list has not been checked yet.";
 
         NevrFetchResult fetched = null;
         yield return NevrManifestClient.Fetch(result => fetched = result);
@@ -49,6 +56,20 @@ public class NevrReleaseManager : MonoBehaviour
                 InstallerLog.Mark("NEVR_RELEASE_SELECTED",
                     "channel=" + channel + " | version=" + release.Version +
                     " | versionCode=" + apk.AndroidVersionCode + " | sha256=" + apk.Sha256);
+
+                if (NevrGameData.TryPick(fetched.Manifest, channel, out NevrArtifact gameData, out string gameDataError))
+                {
+                    CurrentGameData = gameData;
+                    GameDataError = null;
+                    InstallerLog.Mark("NEVR_GAME_DATA_SELECTED",
+                        "name=" + gameData.Name + " | size=" + gameData.Size + " | sha256=" + gameData.Sha256 +
+                        " | dataVersion=" + gameData.DataVersion + " | echoBuild=" + gameData.EchoBuild);
+                }
+                else
+                {
+                    GameDataError = gameDataError;
+                    InstallerLog.Error("NEVR_GAME_DATA_NOT_SELECTED | " + gameDataError);
+                }
             }
             else
             {

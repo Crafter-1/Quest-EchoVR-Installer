@@ -20,6 +20,11 @@ public sealed class NevrArtifact
 
     // Null when the manifest does not carry a signer certificate for this APK.
     public string AndroidSignerCertSha256 { get; set; }
+
+    // Set for a game-data artifact only: the data version of the files inside the zip and the
+    // Echo build they belong to, both whole-number text.
+    public string DataVersion { get; set; }
+    public string EchoBuild { get; set; }
 }
 
 public sealed class NevrRelease
@@ -41,6 +46,10 @@ public sealed class NevrManifest
     public const string SignatureUrl = BaseUrl + "manifest.json.sig";
     public const long MaxManifestBytes = 1024 * 1024;
 
+    // The game-data zip is the largest thing the manifest names (about 0.9 GB in 2026). A
+    // manifest that names more than this is refused before anything is downloaded.
+    public const long MaxGameDataBytes = 4L * 1024 * 1024 * 1024;
+
     public long ManifestVersion { get; private set; }
     public DateTime GeneratedUtc { get; private set; }
     public DateTime ExpiresUtc { get; private set; }
@@ -58,6 +67,16 @@ public sealed class NevrManifest
     private static readonly Regex ChannelPattern = new Regex(@"^(stable|beta)\z");
     private static readonly Regex ArtifactPathPattern = new Regex(
         @"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)/nevr-runtime-v[0-9]+\.[0-9]+\.[0-9]+-[a-z0-9.-]+\z");
+    private static readonly Regex GameDataPathPattern = new Regex(@"^data/echovr-data-[0-9a-f]{12}\.zip\z");
+    private static readonly Regex DigitsPattern = new Regex(@"^[0-9]{1,20}\z");
+
+    // True for the one shape of path a game-data artifact may have: a file directly under
+    // data/, named for the first 12 digits of its hash. No "..", no slashes beyond that one,
+    // no scheme or host.
+    public static bool IsGameDataPath(string path)
+    {
+        return path != null && GameDataPathPattern.IsMatch(path);
+    }
 
     // Never throws. The caller must have verified the signature over these exact bytes.
     public static bool TryParse(byte[] bytes, out NevrManifest manifest, out string error)
@@ -277,6 +296,8 @@ public sealed class NevrManifest
 
         if (!RequireString(node, "kind", out string kind, out error))
             return false;
+        if (kind == "game-data")
+            return TryParseGameData(version, node, out artifact, out error);
         if (kind != "quest-apk")
             return true;
 
@@ -330,6 +351,57 @@ public sealed class NevrManifest
             AndroidPackage = package,
             AndroidVersionCode = versionCode,
             AndroidSignerCertSha256 = cert
+        };
+        return true;
+    }
+
+    // The Echo VR game data for Android: one zip, named and hashed by the signed manifest.
+    // Its "contents" list is not read; the zip as a whole is what is checked.
+    private static bool TryParseGameData(
+        string version,
+        JObject node,
+        out NevrArtifact artifact,
+        out string error)
+    {
+        artifact = null;
+        error = null;
+        if (!RequireString(node, "name", out string name, out error) ||
+            !RequireString(node, "platform", out string platform, out error) ||
+            !RequireString(node, "path", out string path, out error) ||
+            !RequireString(node, "sha256", out string sha256, out error) ||
+            !RequireLong(node, "size", out long size, out error))
+            return false;
+
+        if (platform != "android-arm64" ||
+            !IsGameDataPath(path) ||
+            path.Substring("data/".Length) != name ||
+            !Sha256Pattern.IsMatch(sha256) ||
+            size < 1 || size > MaxGameDataBytes)
+        {
+            error = "has a game-data entry that is not valid (" + version + ")";
+            return false;
+        }
+
+        if (!(node["game_data"] is JObject gameData) ||
+            !RequireString(gameData, "data_version", out string dataVersion, out error) ||
+            !RequireString(gameData, "echo_build", out string echoBuild, out error) ||
+            !DigitsPattern.IsMatch(dataVersion) ||
+            !DigitsPattern.IsMatch(echoBuild))
+        {
+            error = error ?? "has a game-data entry with no valid data version or Echo build (" + version + ")";
+            return false;
+        }
+
+        artifact = new NevrArtifact
+        {
+            Name = name,
+            Kind = "game-data",
+            Platform = platform,
+            Path = path,
+            Sha256 = sha256,
+            Size = size,
+            DataVersion = dataVersion,
+            EchoBuild = echoBuild
         };
         return true;
     }

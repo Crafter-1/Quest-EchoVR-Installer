@@ -17,11 +17,15 @@ public sealed class NevrDownloadSink : IDisposable
 
     // `limit` is the most bytes accepted. With `requireExact` the download must also end at
     // exactly `limit` bytes (an APK of the size the manifest gave).
-    public NevrDownloadSink(Stream target, long limit, bool requireExact)
+    // `alreadyHave` is for a resumed download: the target already holds that many bytes, they
+    // count toward `limit`, and the hash covers only the bytes received here, so the caller
+    // hashes the whole file itself.
+    public NevrDownloadSink(Stream target, long limit, bool requireExact, long alreadyHave = 0)
     {
         _target = target;
         _limit = limit;
         _requireExact = requireExact;
+        Received = alreadyHave;
     }
 
     // A server that announces more bytes than the limit is refused before any are taken.

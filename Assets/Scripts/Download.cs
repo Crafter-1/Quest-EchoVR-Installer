@@ -1,6 +1,5 @@
 using UnityEngine;
 using TMPro;
-using UnityEngine.Networking;
 using System.Collections;
 using System;
 using System.IO;
@@ -14,21 +13,15 @@ public class Download : MonoBehaviour
     public ApkInstaller apkInstaller;
     public QuestUpdateManager updateManager;
 
-    [Header("Server")] public string[] ServerLocations =
-        { "https://evr.echo.taxi", "https://files.echovr.de"};
-
-    [Header("Config")] public int TestTimeMs = 2000;
-    public int TimeoutMs = 2000; // only used for the quick server speed test
-    public int DownloadThreshold = 200;
-    public int BatchSize = 5;
-
+    [Header("Config")]
     [Tooltip("The data download stops after this long without receiving a byte.")]
     public double DataStallSeconds = 60;
 
     [Tooltip("The data download stops after this long in all (6 hours).")]
     public double DataTotalSeconds = 6 * 3600;
 
-    [Header("File")] public string EvrVersion = "4987570";
+    [Header("File")]
+    [Tooltip("The unsigned zip name earlier installers saved. It is no longer downloaded; a copy found on the headset is removed.")]
     public string DownloadFileName = "_data.zip";
 
     [Tooltip("Where the zip itself is downloaded to. Leave blank to use persistentDataPath.")]
@@ -38,6 +31,10 @@ public class Download : MonoBehaviour
     [Tooltip("The actual Echo VR app's package name - extracted data must land in this app's OBB folder, not our own.")]
     public string EchoPackageName = "com.readyatdawn.r15";
 
+    private const string DataFilePattern = "echovr-data-*.zip";
+
+    // The game-data artifact of the accepted manifest, and the address built from it.
+    private NevrArtifact _gameData;
     private string _url;
     private string _title;
     private int _progress;
@@ -74,12 +71,18 @@ public class Download : MonoBehaviour
     private void BeginDataFlow()
     {
         _flowBegun = true;
-        InstallerLog.Mark("DOWNLOAD_START", "version=" + EvrVersion);
+        InstallerLog.Mark("DOWNLOAD_START");
         InitializePaths();
 
         if (_suppressAutomaticDataDownload)
         {
             SetProgress("Updating Echo APK", 2, 1, "");
+            return;
+        }
+
+        if (!TryResolveGameData(out string resolveError))
+        {
+            FailDownload("DATA_DOWNLOAD_NOT_STARTED", resolveError);
             return;
         }
 
@@ -102,15 +105,54 @@ public class Download : MonoBehaviour
         }
 
         // Storage permission is now handled earlier by StoragePermissionGate,
-        // before this screen is ever shown - safe to go straight to the server test.
-        StartCoroutine(TestServers());
+        // before this screen is ever shown - safe to go straight to the download.
+        StartCoroutine(DownloadData());
     }
 
+    // True when a game-data zip that was checked against the signed manifest is on the headset.
+    // A zip only gets its final name after its size and SHA-256 matched, so the name is the
+    // record. Once the manifest is accepted it must be the one the manifest names now; before
+    // that (an existing install being offered Extract) the newest such zip is used.
     public bool HasDownloadedDataZip()
     {
         InitializePaths();
-        _downloadedZipPath = Path.Combine(DownloadDirectory, DownloadFileName);
-        return File.Exists(_downloadedZipPath);
+        if (_gameData != null)
+        {
+            string expected = Path.Combine(DownloadDirectory, _gameData.Name);
+            if (TryGetLength(expected) != _gameData.Size)
+                return false;
+
+            _downloadedZipPath = expected;
+            return true;
+        }
+
+        string newest = null;
+        DateTime newestTime = DateTime.MinValue;
+        try
+        {
+            foreach (string file in Directory.GetFiles(DownloadDirectory, DataFilePattern))
+            {
+                if (!NevrManifest.IsGameDataPath("data/" + Path.GetFileName(file)) || TryGetLength(file) < 1)
+                    continue;
+
+                DateTime written = File.GetLastWriteTimeUtc(file);
+                if (newest == null || written > newestTime)
+                {
+                    newest = file;
+                    newestTime = written;
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            InstallerLog.Warning("DATA_ZIP_SEARCH_FAILED | " + exception.Message);
+        }
+
+        if (newest == null)
+            return false;
+
+        _downloadedZipPath = newest;
+        return true;
     }
 
     // Moving to the official build tells the player the game data is downloaded again, so the
@@ -123,13 +165,27 @@ public class Download : MonoBehaviour
         InitializePaths();
         _suppressAutomaticDataDownload = false;
 
+        // The download screen already ran once: it starts the download again here, so the
+        // manifest's game data must be known before anything is removed. If it has not run
+        // yet, its own start does all of this.
+        if (_flowBegun)
+        {
+            if (!TryResolveGameData(out string resolveError))
+            {
+                error = resolveError;
+                return false;
+            }
+
+            if (!isActiveAndEnabled)
+            {
+                error = "The download screen is not active.";
+                return false;
+            }
+        }
+
         try
         {
-            string zipPath = Path.Combine(DownloadDirectory, DownloadFileName);
-            if (File.Exists(zipPath))
-                File.Delete(zipPath);
-            if (File.Exists(zipPath + ".part"))
-                File.Delete(zipPath + ".part");
+            RemoveDataFiles(null);
         }
         catch (Exception exception)
         {
@@ -140,20 +196,12 @@ public class Download : MonoBehaviour
         ClearDataReadyMarker();
         _extractionStarted = false;
         _extractionComplete = false;
-        _downloadedZipPath = Path.Combine(DownloadDirectory, DownloadFileName);
+        _downloadedZipPath = null;
 
         if (!_flowBegun)
             return true;
 
-        // The download screen already ran once: start the download again here. If it has
-        // not run yet, its own start does this.
-        if (!isActiveAndEnabled)
-        {
-            error = "The download screen is not active.";
-            return false;
-        }
-
-        StartCoroutine(TestServers());
+        StartCoroutine(DownloadData());
         return true;
     }
 
@@ -174,156 +222,183 @@ public class Download : MonoBehaviour
             (string.IsNullOrEmpty(_lastError) ? "" : $"\n\n{_lastError}");
     }
 
-    #region Server Selection
-
-    private IEnumerator TestServers()
-    {
-        InstallerLog.Mark("SERVER_TEST_START", "count=" + (ServerLocations == null ? 0 : ServerLocations.Length));
-        SetProgress("Testing servers", 1, ServerLocations.Length, "");
-
-        var bestSpeed = 0f;
-        var bestServer = ServerLocations[0];
-
-        for (var i = 0; i < ServerLocations.Length; i += BatchSize)
-        {
-            var batchCount = Mathf.Min(BatchSize, ServerLocations.Length - i);
-            var completed = 0;
-            var foundFastServer = false;
-
-            for (var j = 0; j < batchCount; j++)
-            {
-                var index = i + j;
-                _progress = index;
-
-                StartCoroutine(TestServer(ServerLocations[index], speed =>
-                {
-                    if (speed > bestSpeed)
-                    {
-                        bestSpeed = speed;
-                        bestServer = ServerLocations[index];
-                    }
-
-                    if (speed >= DownloadThreshold)
-                        foundFastServer = true;
-
-                    completed++;
-                }));
-            }
-
-            yield return new WaitUntil(() => completed >= batchCount || foundFastServer);
-
-            if (foundFastServer)
-                break;
-        }
-
-        SetServer(bestServer);
-        StartCoroutine(DownloadData());
-    }
-
-    private IEnumerator TestServer(string server, Action<float> onComplete)
-    {
-        var url = BuildUrl(server);
-
-        using var request = CreateTestRequest(UnityWebRequest.Get(url));
-
-        var start = Time.time;
-        request.SendWebRequest();
-
-        while (!request.isDone)
-        {
-            if ((Time.time - start) * 1000f > TestTimeMs)
-            {
-                request.Abort();
-                break;
-            }
-
-            yield return null;
-        }
-
-        var speed = 0f;
-
-        if (request.result == UnityWebRequest.Result.Success && NevrHttpRules.RefusalFor(request.responseCode) == null)
-        {
-            var duration = Time.time - start;
-            if (duration > 0f)
-                speed = (request.downloadedBytes / 1024f) / duration;
-        }
-
-        onComplete?.Invoke(speed);
-    }
-
-    private void SetServer(string server)
-    {
-        ServerData.text = ServerData.text.Replace("Server download location: Loading...", $"Server location: {server}");
-        _url = BuildUrl(server);
-    }
-
-    private string BuildUrl(string server) => $"{server}/{DownloadFileName}";
-
-    #endregion
-
     #region Download
+
+    // The game data comes from the signed manifest: the accepted manifest's game-data artifact
+    // names the file, its size and its SHA-256. Nothing is chosen from a list of servers.
+    private bool TryResolveGameData(out string error)
+    {
+        error = null;
+        NevrReleaseManager manager = FindFirstObjectByType<NevrReleaseManager>(FindObjectsInactive.Include);
+        NevrArtifact artifact = manager != null ? manager.CurrentGameData : null;
+        if (artifact == null)
+        {
+            error = manager != null && !string.IsNullOrEmpty(manager.GameDataError)
+                ? manager.GameDataError
+                : "The Echo update list has not been checked, so the game data cannot be downloaded.";
+            ReplaceVersionPlaceholder("unknown");
+            return false;
+        }
+
+        if (!NevrGameData.TryBuildUrl(artifact, out string url, out error))
+        {
+            ReplaceVersionPlaceholder("unknown");
+            return false;
+        }
+
+        _gameData = artifact;
+        _url = url;
+        ReplaceVersionPlaceholder(artifact.EchoBuild);
+        if (ServerData != null)
+            ServerData.text = ServerData.text.Replace(
+                "Server download location: Loading...", "Server location: " + new Uri(url).Host);
+
+        return true;
+    }
+
+    private void ReplaceVersionPlaceholder(string version)
+    {
+        if (ServerData != null)
+            ServerData.text = ServerData.text.Replace("${evrV}", version);
+    }
 
     private IEnumerator DownloadData()
     {
-        InstallerLog.Mark("DATA_DOWNLOAD_START", "url=" + _url);
-        var fileSize = 0;
-        yield return GetFileSize(_url, size => fileSize = size);
-
-        SetProgress("Downloading required data", 2, fileSize / 1048576, "MB");
+        NevrArtifact artifact = _gameData;
+        string url = _url;
+        InstallerLog.Mark("DATA_DOWNLOAD_START",
+            "url=" + url + " | size=" + artifact.Size + " | sha256=" + artifact.Sha256);
+        int totalMegabytes = (int)(artifact.Size / 1048576);
+        SetProgress("Downloading required data", 2, totalMegabytes, "MB");
         _lastError = null;
 
-        var path = Path.Combine(DownloadDirectory, DownloadFileName);
-        var temporaryPath = path + ".part";
+        string path = Path.Combine(DownloadDirectory, artifact.Name);
+        string temporaryPath = path + ".part";
 
-        FileStream target;
         try
         {
             Directory.CreateDirectory(DownloadDirectory);
-            if (File.Exists(temporaryPath))
-                File.Delete(temporaryPath);
-
-            target = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None);
+            RemoveDataFiles(artifact.Name);
         }
         catch (Exception exception)
         {
-            _title = "Download failed";
-            _lastError = exception.Message;
+            FailDownload("DATA_DOWNLOAD_FAILED", exception.Message);
             yield break;
         }
 
-        // The same download rules as the APK: https only, no redirect followed, and a stall
-        // watchdog. There is no size cap or hash yet (the zip is not in the signed manifest),
-        // and no request timeout - large files need to run to completion.
-        var outcome = new NevrHttpOutcome();
-        yield return NevrHttpDownload.Get(
-            _url, target, long.MaxValue, false, 0, DataStallSeconds, DataTotalSeconds, outcome,
-            received =>
-            {
-                if (fileSize > 0)
-                    _progress = (int)(received / 1048576);
-            });
-
-        if (outcome.Failure != null)
+        // The first try carries on from a partial file an earlier run left. If the server
+        // ignores the Range request, the second starts the file over.
+        string freshSha256 = null;
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            InstallerLog.Error("DATA_DOWNLOAD_FAILED | HTTP " + outcome.ResponseCode + " | " + outcome.Failure);
-            _title = "Download failed";
-            _lastError = outcome.Failure;
-            Debug.LogError($"[Download] Data download failed: {outcome.Failure} (url: {_url})");
+            long resumeFrom = attempt == 0
+                ? NevrGameData.ResumeOffset(TryGetLength(temporaryPath), artifact.Size)
+                : 0;
+
+            if (resumeFrom == artifact.Size)
+            {
+                // Every byte is already here; only the checks below remain.
+                InstallerLog.Mark("DATA_DOWNLOAD_PARTIAL_COMPLETE", "bytes=" + resumeFrom);
+                _progress = _total;
+                break;
+            }
+
+            FileStream target = null;
+            try
+            {
+                if (resumeFrom > 0)
+                {
+                    target = new FileStream(temporaryPath, FileMode.Open, FileAccess.Write, FileShare.None);
+                    target.Seek(resumeFrom, SeekOrigin.Begin);
+                }
+                else
+                {
+                    target = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                }
+            }
+            catch (Exception exception)
+            {
+                target?.Dispose();
+                FailDownload("DATA_DOWNLOAD_FAILED", exception.Message);
+                yield break;
+            }
+
+            if (resumeFrom > 0)
+            {
+                InstallerLog.Mark("DATA_DOWNLOAD_RESUME", "offset=" + resumeFrom);
+                _progress = (int)(resumeFrom / 1048576);
+            }
+
+            // The same download rules as the APK: https only, no redirect followed, a stall
+            // watchdog and a byte count capped at the manifest's size. There is no request
+            // timeout - large files need to run to completion.
+            var outcome = new NevrHttpOutcome();
+            yield return NevrHttpDownload.Get(
+                url, target, artifact.Size, true, 0, DataStallSeconds, DataTotalSeconds, outcome,
+                received => _progress = (int)(received / 1048576),
+                resumeFrom);
+
+            if (outcome.Failure != null)
+            {
+                InstallerLog.Error("DATA_DOWNLOAD_FAILED | HTTP " + outcome.ResponseCode + " | " + outcome.Failure);
+                Debug.LogError($"[Download] Data download failed: {outcome.Failure} (url: {url})");
+                if (outcome.RangeIgnored && attempt == 0)
+                {
+                    TryDelete(temporaryPath);
+                    continue;
+                }
+
+                // Keep the bytes known to be the start of the file, so the next run resumes.
+                KeepOnlyTrustedBytes(temporaryPath, outcome.TrustedBytes);
+                _title = "Download failed";
+                _lastError = outcome.Failure + (outcome.TrustedBytes > 0
+                    ? " Close and reopen the installer to carry on where it stopped."
+                    : "");
+                yield break;
+            }
+
+            // The hash the download computed covers the whole file only if it started at 0.
+            if (resumeFrom == 0)
+                freshSha256 = outcome.Sha256;
+            break;
+        }
+
+        string sha256 = freshSha256;
+        if (sha256 == null)
+        {
+            SetProgress("Checking the downloaded data", 2, totalMegabytes, "MB");
+            string hashError = null;
+            yield return Sha256Utility.CalculateFile(
+                temporaryPath, hash => sha256 = hash, error => hashError = error);
+            if (hashError != null)
+            {
+                FailDownload("DATA_VERIFY_FAILED", "Could not check the downloaded game data: " + hashError);
+                yield break;
+            }
+        }
+
+        // The zip is only given its final name, and only ever extracted, once the size and
+        // the SHA-256 are the ones the signed manifest names.
+        string problem = NevrGameData.CheckDownloaded(artifact, TryGetLength(temporaryPath), sha256);
+        if (problem != null)
+        {
+            TryDelete(temporaryPath);
+            FailDownload("DATA_VERIFY_FAILED", problem);
             yield break;
         }
+
+        InstallerLog.Mark("DATA_VERIFIED",
+            "name=" + artifact.Name + " | size=" + artifact.Size + " | sha256=" + sha256);
 
         if (!TryReplaceDownloadedFile(temporaryPath, path, out string replaceError))
         {
-            _title = "Download failed";
-            _lastError = replaceError;
-            Debug.LogError($"[Download] Could not store data ZIP: {replaceError}");
+            FailDownload("DATA_STORE_FAILED", "Could not store the game data: " + replaceError);
             yield break;
         }
 
+        SetProgress("Data downloaded", 2, totalMegabytes, "MB");
         _progress = _total;
         _downloadedZipPath = path;
-        _title = "Data downloaded";
         ClearDataReadyMarker();
 
         if (afterInstallController == null)
@@ -345,9 +420,9 @@ public class Download : MonoBehaviour
         InitializePaths();
 
         if (string.IsNullOrEmpty(_downloadedZipPath))
-            _downloadedZipPath = Path.Combine(DownloadDirectory, DownloadFileName);
+            HasDownloadedDataZip();
 
-        if (!File.Exists(_downloadedZipPath))
+        if (string.IsNullOrEmpty(_downloadedZipPath) || !File.Exists(_downloadedZipPath))
         {
             _title = "Extraction failed";
             _lastError = "The downloaded data ZIP could not be found.";
@@ -355,17 +430,21 @@ public class Download : MonoBehaviour
             return;
         }
 
+        // Once the manifest is accepted, only the file it names is extracted.
+        if (_gameData != null &&
+            (Path.GetFileName(_downloadedZipPath) != _gameData.Name ||
+             TryGetLength(_downloadedZipPath) != _gameData.Size))
+        {
+            _title = "Extraction failed";
+            _lastError = "The downloaded data ZIP is not the one the update list names.";
+            InstallerLog.Error("DATA_EXTRACT_REFUSED | " + _downloadedZipPath);
+            return;
+        }
+
         _extractionStarted = true;
         StartCoroutine(_extractionComplete
             ? FinishDataSetup()
             : UnzipData(_downloadedZipPath));
-    }
-
-    private UnityWebRequest CreateTestRequest(UnityWebRequest request)
-    {
-        request.timeout = TimeoutMs / 1000;
-        request.redirectLimit = NevrHttpRules.RedirectLimit;
-        return request;
     }
 
     #endregion
@@ -519,7 +598,7 @@ public class Download : MonoBehaviour
         {
             File.WriteAllText(
                 Path.Combine(GetDataExtractPath(), ".quest_evr_data_ready"),
-                EvrVersion);
+                _gameData != null ? _gameData.EchoBuild : Path.GetFileName(_downloadedZipPath));
         }
         catch (Exception e)
         {
@@ -546,14 +625,9 @@ public class Download : MonoBehaviour
         if (_pathsInitialized)
             return;
 
-        DownloadFileName = DownloadFileName.Replace("${EvrV}", EvrVersion);
-        if (ServerData != null)
-            ServerData.text = ServerData.text.Replace("${evrV}", EvrVersion);
-
         if (string.IsNullOrWhiteSpace(DownloadDirectory))
             DownloadDirectory = Application.persistentDataPath;
 
-        _downloadedZipPath = Path.Combine(DownloadDirectory, DownloadFileName);
         _pathsInitialized = true;
     }
 
@@ -567,18 +641,99 @@ public class Download : MonoBehaviour
         _lastError = null;
     }
 
-    private static IEnumerator GetFileSize(string url, Action<int> onComplete)
+    private void FailDownload(string logEvent, string message)
     {
-        using var request = UnityWebRequest.Head(url);
-        request.redirectLimit = NevrHttpRules.RedirectLimit;
-        yield return request.SendWebRequest();
+        InstallerLog.Error(logEvent + " | " + message);
+        _title = "Download failed";
+        _lastError = message;
+        Debug.LogError($"[Download] {message}");
+    }
 
-        // The size is only for the progress display; a redirect or an error leaves it unknown.
-        if (NevrHttpRules.RefusalFor(request.responseCode) != null
-            || !int.TryParse(request.GetResponseHeader("Content-Length"), out var size))
-            size = 0;
+    // Removes game-data zips this installer saved (and their .part and .backup files), and
+    // the unsigned zip earlier installers saved, except the files named `keepName`. Null
+    // keeps nothing. Throws if a file cannot be removed.
+    private void RemoveDataFiles(string keepName)
+    {
+        if (!Directory.Exists(DownloadDirectory))
+            return;
 
-        onComplete?.Invoke(size);
+        if (!string.IsNullOrWhiteSpace(DownloadFileName))
+        {
+            foreach (string suffix in new[] { "", ".part", ".backup" })
+                DeleteIfExists(Path.Combine(DownloadDirectory, DownloadFileName + suffix));
+        }
+
+        foreach (string file in Directory.GetFiles(DownloadDirectory, DataFilePattern + "*"))
+        {
+            string name = Path.GetFileName(file);
+            if (name.EndsWith(".part", StringComparison.Ordinal))
+                name = name.Substring(0, name.Length - ".part".Length);
+            else if (name.EndsWith(".backup", StringComparison.Ordinal))
+                name = name.Substring(0, name.Length - ".backup".Length);
+
+            if (!NevrManifest.IsGameDataPath("data/" + name) || name == keepName)
+                continue;
+
+            DeleteIfExists(file);
+        }
+    }
+
+    private static void DeleteIfExists(string path)
+    {
+        if (File.Exists(path))
+            File.Delete(path);
+    }
+
+    private static long TryGetLength(string path)
+    {
+        try
+        {
+            return File.Exists(path) ? new FileInfo(path).Length : -1;
+        }
+        catch (Exception)
+        {
+            return -1;
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            DeleteIfExists(path);
+        }
+        catch (Exception exception)
+        {
+            InstallerLog.Warning("DATA_FILE_DELETE_FAILED | " + path + " | " + exception.Message);
+        }
+    }
+
+    // After a failed try: cut the partial file back to the bytes known to be the start of the
+    // game data, so an error page or a wrong answer is never kept in front of a later resume.
+    private static void KeepOnlyTrustedBytes(string path, long trusted)
+    {
+        try
+        {
+            if (!File.Exists(path))
+                return;
+
+            if (trusted <= 0)
+            {
+                File.Delete(path);
+                return;
+            }
+
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.None))
+            {
+                if (stream.Length > trusted)
+                    stream.SetLength(trusted);
+            }
+        }
+        catch (Exception exception)
+        {
+            InstallerLog.Warning("DATA_PARTIAL_TRIM_FAILED | " + exception.Message);
+            TryDelete(path);
+        }
     }
 
     private void FailDataSetup(string error)
