@@ -82,11 +82,8 @@ public class InstallMenuController : MonoBehaviour
             NevrInstallAction action = NevrQuestRelease.Plan(
                 apk, installed, installed ? details.VersionCode : 0, installed ? details.SignerCertSha256 : null);
             InstallerLog.Mark("INSTALL_PLAN", "action=" + action);
-            if (action != NevrInstallAction.DifferentSigner)
-            {
-                // The manifest is accepted: only now may the game-data download start.
-                NevrInstallGate.Open();
-            }
+            // The manifest is accepted: only now may the game-data download start.
+            NevrInstallGate.Open();
 
             switch (action)
             {
@@ -99,10 +96,25 @@ public class InstallMenuController : MonoBehaviour
                     installer.SkipApkInstallBecauseCurrent();
                     break;
                 default:
-                    installer.SetStatusMessage(NevrMigrationMessages.DifferentSigner);
+                    StartMigration(apk);
                     break;
             }
         });
+    }
+
+    // Echo VR on the headset is signed by someone else. The same migration as Check for
+    // Updates runs: a fresh game data download first, then the uninstall and the install.
+    private void StartMigration(NevrArtifact apk)
+    {
+        AfterInstallController afterInstall = FindFirstObjectByType<AfterInstallController>(FindObjectsInactive.Include);
+        if (afterInstall == null)
+        {
+            InstallerLog.Error("MIGRATION_CONTROLLER_MISSING");
+            installer.SetStatusMessage("Could not find the part of the installer that moves Echo VR to the official build, so nothing was changed.");
+            return;
+        }
+
+        afterInstall.BeginMigrationFromInstallMenu(apk, installer);
     }
 
     private NevrReleaseManager GetReleaseManager()

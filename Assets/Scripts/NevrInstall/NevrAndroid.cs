@@ -93,6 +93,31 @@ public static class NevrAndroid
         }
     }
 
+    // Opens Android's own uninstall confirmation for a package. Returns false, with the
+    // reason, if the request could not be made.
+    public static bool TryRequestUninstall(string packageName, out string error)
+    {
+        error = null;
+        try
+        {
+            using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+            using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
+            using (var uriClass = new AndroidJavaClass("android.net.Uri"))
+            using (var uri = uriClass.CallStatic<AndroidJavaObject>("parse", "package:" + packageName))
+            using (var intent = new AndroidJavaObject("android.content.Intent", "android.intent.action.DELETE"))
+            {
+                intent.Call<AndroidJavaObject>("setData", uri);
+                activity.Call("startActivity", intent);
+                return true;
+            }
+        }
+        catch (Exception exception)
+        {
+            error = exception.Message;
+            return false;
+        }
+    }
+
     private static bool TryRead(AndroidJavaObject packageInfo, out PackageDetails details, out string error)
     {
         details = null;
@@ -151,6 +176,12 @@ public static class NevrAndroid
         return true;
     }
 #else
+    public static bool TryRequestUninstall(string packageName, out string error)
+    {
+        error = "Uninstalling can only be requested on the headset.";
+        return false;
+    }
+
     public static bool TryReadApk(string apkPath, out PackageDetails details, out string error)
     {
         details = null;

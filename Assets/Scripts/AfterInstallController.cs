@@ -37,6 +37,7 @@ public class AfterInstallController : MonoBehaviour
     private NevrReleaseManager _releaseManager;
     private Coroutine _installCompletionMonitor;
     private string _installRejectedMessage;
+    private bool _migrating;
 
     private void Start()
     {
@@ -151,6 +152,9 @@ public class AfterInstallController : MonoBehaviour
             return;
         }
 
+        _migrating = false;
+        SetUpdateBusy(false);
+
         // A package named Echo VR is on the headset. Before anything else is set up for it,
         // confirm it is the APK that was verified: same version, signed by the manifest's key.
         ApkInstaller installer = GetApkInstaller();
@@ -251,18 +255,18 @@ public class AfterInstallController : MonoBehaviour
                     "The Echo VR on this headset is newer than the release on the update list, so nothing was changed.");
                 break;
             case NevrInstallAction.Update:
-                BeginSignedApkUpdate(apk);
+                BeginSignedApkUpdate(apk, replaceOtherSigner: false);
                 break;
             case NevrInstallAction.Install:
                 FinishUpdateWithError("Echo VR is not installed on this headset. Use the install screen first.");
                 break;
             default:
-                FinishUpdateWithError(NevrMigrationMessages.DifferentSigner);
+                BeginSignedApkUpdate(apk, replaceOtherSigner: true);
                 break;
         }
     }
 
-    private void BeginSignedApkUpdate(NevrArtifact apk)
+    private void BeginSignedApkUpdate(NevrArtifact apk, bool replaceOtherSigner)
     {
         InstallerLog.Mark("UPDATE_SIGNED_APK_REQUIRED");
         ApkInstaller installer = GetApkInstaller();
@@ -272,8 +276,101 @@ public class AfterInstallController : MonoBehaviour
             return;
         }
 
+        if (replaceOtherSigner)
+        {
+            BeginMigration(apk, installer);
+            return;
+        }
+
         BeginApkUpdateDisplay();
         installer.DownloadAndInstallSigned(apk, apkOnlyUpdate: true);
+    }
+
+    // The install screen's way into BeginMigration, when the Echo VR on the headset is signed
+    // by someone else. Both ways in take the same path: the earlier _data.zip is removed and
+    // downloaded again, and _migrating keeps Extract hidden while the old Echo VR is installed.
+    // The scene has two ApkInstaller components, so the menu passes the one it is wired to
+    // instead of this class searching for one.
+    public void BeginMigrationFromInstallMenu(NevrArtifact apk, ApkInstaller installer)
+    {
+        InstallerLog.Mark("MIGRATION_FROM_INSTALL_MENU");
+        if (installer == null)
+            installer = GetApkInstaller();
+
+        if (installer == null)
+        {
+            FinishUpdateWithError("Could not find the APK installer.");
+            return;
+        }
+
+        _apkInstaller = installer;
+        BeginMigration(apk, installer);
+    }
+
+    // Moving from the community installer's APK. The notice to the player says the game data
+    // is downloaded again, so this runs the whole data download first (the install waits for
+    // it), then the uninstall and the install; the data is extracted after the install, as on
+    // a fresh install. Nothing is offered to the player in between.
+    private void BeginMigration(NevrArtifact apk, ApkInstaller installer)
+    {
+        InstallerLog.Mark("MIGRATION_BEGIN");
+        try
+        {
+            StartMigrationSteps(apk, installer);
+        }
+        catch (System.Exception exception)
+        {
+            // The install screen has already opened the gate, so the normal data flow could
+            // start and offer Extract next to the old Echo VR. Close it and stop here.
+            InstallerLog.Error("MIGRATION_BEGIN_FAILED | " + exception.Message);
+            _migrating = false;
+            NevrInstallGate.Close();
+            FinishUpdateWithError("The move to the official build could not start (" + exception.Message + "). Nothing was changed.");
+        }
+    }
+
+    private void StartMigrationSteps(NevrArtifact apk, ApkInstaller installer)
+    {
+        if (dataDownloader == null)
+            dataDownloader = FindFirstObjectByType<Download>(FindObjectsInactive.Include);
+
+        if (dataDownloader == null)
+        {
+            FinishUpdateWithError("Could not find the game data downloader, so nothing was changed.");
+            return;
+        }
+
+        _migrating = true;
+        _updateCheckRunning = true;
+        _dataDownloaded = false;
+        _dataReady = false;
+        PlayerPrefs.SetInt(DataReadyPreference, 0);
+        PlayerPrefs.Save();
+
+        if (afterInstallPanel != null)
+            afterInstallPanel.SetActive(false);
+
+        SetDownloadPanelVisible(true);
+        if (!dataDownloader.PrepareForFreshDataDownload(out string prepareError))
+        {
+            _migrating = false;
+            FinishUpdateWithError(prepareError + " Nothing was changed.");
+            return;
+        }
+
+        installer.DownloadAndInstallSigned(apk, apkOnlyUpdate: false, replaceOtherSigner: true);
+    }
+
+    // The APK installer calls this when a migration ends without the new APK being installed,
+    // with the sentence for the player.
+    public void NotifyMigrationStopped(string message)
+    {
+        if (!_migrating)
+            return;
+
+        _migrating = false;
+        InstallerLog.Mark("MIGRATION_STOPPED");
+        FinishUpdateWithError(message);
     }
 
     private void BeginApkUpdateDisplay()
@@ -411,8 +508,12 @@ public class AfterInstallController : MonoBehaviour
         return _releaseManager;
     }
 
+    // The scene has two ApkInstaller components. The one wired to the downloader is the one
+    // that gets the data-ready notice and has a status text, so it comes first.
     private ApkInstaller GetApkInstaller()
     {
+        if (_apkInstaller == null && dataDownloader != null)
+            _apkInstaller = dataDownloader.apkInstaller;
         if (_apkInstaller == null)
             _apkInstaller = FindFirstObjectByType<ApkInstaller>(FindObjectsInactive.Include);
         return _apkInstaller;
@@ -684,6 +785,11 @@ public class AfterInstallController : MonoBehaviour
             SetStatus(_installRejectedMessage);
             return;
         }
+
+        // While the old Echo VR is being replaced nothing is offered: extracting data into the
+        // app that is about to be uninstalled would be lost, or worse, half-lost.
+        if (_migrating)
+            return;
 
         bool echoInstalled = IsEchoInstalled();
 

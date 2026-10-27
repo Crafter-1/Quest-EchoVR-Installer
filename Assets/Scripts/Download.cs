@@ -51,6 +51,7 @@ public class Download : MonoBehaviour
     private bool _extractionComplete;
     private bool _pathsInitialized;
     private bool _suppressAutomaticDataDownload;
+    private bool _flowBegun;
 
     public void Start()
     {
@@ -72,6 +73,7 @@ public class Download : MonoBehaviour
 
     private void BeginDataFlow()
     {
+        _flowBegun = true;
         InstallerLog.Mark("DOWNLOAD_START", "version=" + EvrVersion);
         InitializePaths();
 
@@ -109,6 +111,50 @@ public class Download : MonoBehaviour
         InitializePaths();
         _downloadedZipPath = Path.Combine(DownloadDirectory, DownloadFileName);
         return File.Exists(_downloadedZipPath);
+    }
+
+    // Moving to the official build tells the player the game data is downloaded again, so the
+    // earlier download is removed and the whole download runs, whatever came before. Returns
+    // false, with the reason, if that cannot be done; the caller then changes nothing.
+    public bool PrepareForFreshDataDownload(out string error)
+    {
+        error = null;
+        InstallerLog.Mark("FRESH_DATA_DOWNLOAD_PREPARE");
+        InitializePaths();
+        _suppressAutomaticDataDownload = false;
+
+        try
+        {
+            string zipPath = Path.Combine(DownloadDirectory, DownloadFileName);
+            if (File.Exists(zipPath))
+                File.Delete(zipPath);
+            if (File.Exists(zipPath + ".part"))
+                File.Delete(zipPath + ".part");
+        }
+        catch (Exception exception)
+        {
+            error = "Could not remove the earlier game data download (" + exception.Message + ").";
+            return false;
+        }
+
+        ClearDataReadyMarker();
+        _extractionStarted = false;
+        _extractionComplete = false;
+        _downloadedZipPath = Path.Combine(DownloadDirectory, DownloadFileName);
+
+        if (!_flowBegun)
+            return true;
+
+        // The download screen already ran once: start the download again here. If it has
+        // not run yet, its own start does this.
+        if (!isActiveAndEnabled)
+        {
+            error = "The download screen is not active.";
+            return false;
+        }
+
+        StartCoroutine(TestServers());
+        return true;
     }
 
     public void PrepareForApkOnlyUpdateDisplay()
