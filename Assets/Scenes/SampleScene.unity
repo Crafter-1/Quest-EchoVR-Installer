@@ -1004,6 +1004,7 @@ MonoBehaviour:
   errorText: {fileID: 1337357482}
   installer: {fileID: 1212432195}
   updateManager: {fileID: 0}
+  releaseManager: {fileID: 0}
   discordUrl: https://discord.gg/Rs8CQvjDv
 --- !u!1 &105582895
 GameObject:
@@ -1958,6 +1959,7 @@ MonoBehaviour:
   errorText: {fileID: 1337357482}
   installer: {fileID: 854633379}
   updateManager: {fileID: 0}
+  releaseManager: {fileID: 0}
   discordUrl: https://discord.gg/Rs8CQvjDv
 --- !u!4 &285233220 stripped
 Transform:
@@ -12631,7 +12633,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: LEGACY INSTALL
+  m_text: Install
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: dc9d68316732d749fb8fc00538fa0684, type: 2}
   m_sharedMaterial: {fileID: 7485270507207760648, guid: dc9d68316732d749fb8fc00538fa0684, type: 2}
