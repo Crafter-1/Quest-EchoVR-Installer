@@ -1004,6 +1004,7 @@ MonoBehaviour:
   errorText: {fileID: 1337357482}
   installer: {fileID: 1212432195}
   updateManager: {fileID: 0}
+  releaseManager: {fileID: 0}
   discordUrl: https://discord.gg/Rs8CQvjDv
 --- !u!1 &105582895
 GameObject:
@@ -1558,6 +1559,8 @@ MonoBehaviour:
   TimeoutMs: 2000
   DownloadThreshold: 200
   BatchSize: 5
+  DataStallSeconds: 60
+  DataTotalSeconds: 21600
   EvrVersion: 4987570
   DownloadFileName: _data.zip
   DownloadDirectory: 
@@ -1958,6 +1961,7 @@ MonoBehaviour:
   errorText: {fileID: 1337357482}
   installer: {fileID: 854633379}
   updateManager: {fileID: 0}
+  releaseManager: {fileID: 0}
   discordUrl: https://discord.gg/Rs8CQvjDv
 --- !u!4 &285233220 stripped
 Transform:
@@ -8311,15 +8315,15 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: 'Installer made by AvaGoosa & Crafter | With help from FuroFloof
+  m_text: 'Installer made by AvaGoosa & Crafter | With help from Furo, sprockee,
+    Spritz, Teth, Glow
 
-    Special
-    thanks to marshmallow_mia, sprockee, h4ck4r201, vibinator, Bryson, ambrosia443,
-    echovrhelpbot, juneskiethewatermelon, Xenomega,  Ready At Dawn, Oculus, my halftop
-    server, and the EVRL community
+    Special thanks to marshmallow_mia, h4ck4r201, vibinator,
+    Bryson, ambrosia443, echovrhelpbot, juneskiethewatermelon, Xenomega,  Ready At
+    Dawn, Oculus, Ava''s halftop server, and the EVRL community
 
-    Un-special un-thanks to Meta & Boz... and
-    heisthecat'
+    Un-special un-thanks
+    to Meta & Boz... and heisthecat'
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: dc9d68316732d749fb8fc00538fa0684, type: 2}
   m_sharedMaterial: {fileID: 7485270507207760648, guid: dc9d68316732d749fb8fc00538fa0684, type: 2}
