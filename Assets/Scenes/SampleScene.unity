@@ -1552,16 +1552,8 @@ MonoBehaviour:
   afterInstallController: {fileID: 10882373}
   apkInstaller: {fileID: 1212432195}
   updateManager: {fileID: 0}
-  ServerLocations:
-  - https://evr.echo.taxi
-  - https://files.echovr.de
-  TestTimeMs: 2000
-  TimeoutMs: 2000
-  DownloadThreshold: 200
-  BatchSize: 5
   DataStallSeconds: 60
   DataTotalSeconds: 21600
-  EvrVersion: 4987570
   DownloadFileName: _data.zip
   DownloadDirectory: 
   EchoPackageName: com.readyatdawn.r15
@@ -1880,7 +1872,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &282500762
 RectTransform:
   m_ObjectHideFlags: 0
@@ -4883,7 +4875,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &854633378
 RectTransform:
   m_ObjectHideFlags: 0
@@ -6460,7 +6452,7 @@ RectTransform:
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
   m_AnchoredPosition: {x: -104, y: -132}
-  m_SizeDelta: {x: 0, y: 0}
+  m_SizeDelta: {x: 409.90002, y: 398.4}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &985471599
 MonoBehaviour:
@@ -11149,8 +11141,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 164, y: -157}
-  m_SizeDelta: {x: 432.6, y: 36}
+  m_AnchoredPosition: {x: 166, y: -208.3}
+  m_SizeDelta: {x: 489.7, y: 138.6}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!1 &1688935333
 GameObject:
@@ -11982,9 +11974,9 @@ RectTransform:
   - {fileID: 1898128061}
   m_Father: {fileID: 985471598}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 204.95, y: -199.2}
   m_SizeDelta: {x: 409.9, y: 398.4}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1773158118
