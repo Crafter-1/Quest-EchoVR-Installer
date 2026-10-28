@@ -37,7 +37,8 @@ public static class InstallerLog
             if (!string.IsNullOrEmpty(directory))
                 Directory.CreateDirectory(directory);
             RotateIfNeeded();
-            Write("INFO", "Installer logging started. App version=" +
+            Write("INFO", "somewhere in the heavens, bugs are waiting. Installer logging started");
+            Write("INFO", "App version=" +
                 (string.IsNullOrWhiteSpace(Application.version) ? "unknown" : Application.version));
         }
         catch (Exception exception)

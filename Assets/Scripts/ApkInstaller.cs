@@ -64,6 +64,15 @@ public class ApkInstaller : MonoBehaviour
         SetStatus(message);
     }
 
+    // The download screen has its own progress text. Keep this APK-only label
+    // hidden while game data is downloading so the two status blocks cannot
+    // overlap on the same panel.
+    public void SetStatusVisible(bool visible)
+    {
+        if (statusText != null)
+            statusText.gameObject.SetActive(visible);
+    }
+
     public void SkipApkInstallBecauseCurrent()
     {
         _apkDownloadReady = true;
@@ -430,6 +439,8 @@ public class ApkInstaller : MonoBehaviour
 
     private void SetStatus(string message)
     {
+        SetStatusVisible(true);
+
         if (statusText != null)
             statusText.text = message;
 

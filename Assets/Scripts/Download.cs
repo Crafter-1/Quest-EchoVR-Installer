@@ -8,6 +8,7 @@ using System.IO;
 public class Download : MonoBehaviour
 {
     [Header("UI")] public TMP_Text Output;
+    public TMP_Text DataErrorText;
     public TMP_Text ServerData;
     public AfterInstallController afterInstallController;
     public ApkInstaller apkInstaller;
@@ -52,6 +53,8 @@ public class Download : MonoBehaviour
 
     public void Start()
     {
+        if (apkInstaller == null)
+            apkInstaller = FindFirstObjectByType<ApkInstaller>(FindObjectsInactive.Include);
         StartCoroutine(BeginWhenManifestAccepted());
     }
 
@@ -215,11 +218,22 @@ public class Download : MonoBehaviour
     {
         var percent = _total > 0 ? (float)_progress / _total * 100f : 0f;
 
+        if (DataErrorText != null)
+        {
+            bool hasError = !string.IsNullOrEmpty(_lastError);
+            if (DataErrorText.gameObject.activeSelf != hasError)
+                DataErrorText.gameObject.SetActive(hasError);
+            if (hasError)
+                DataErrorText.text = _lastError;
+        }
+
         Output.text =
             $"{_title}\n" +
             $">>> {_progress}/{_total}{_unit} <<<\n" +
             $"Stage {_stage}/{StageTotal} | {percent:0.0}%" +
-            (string.IsNullOrEmpty(_lastError) ? "" : $"\n\n{_lastError}");
+            (DataErrorText == null && !string.IsNullOrEmpty(_lastError)
+                ? $"\n\n{_lastError}"
+                : "");
     }
 
     #region Download
