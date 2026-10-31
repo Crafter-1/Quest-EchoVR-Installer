@@ -14,7 +14,7 @@ public enum NevrInstallAction
 // what the signed manifest says it must be.
 public static class NevrQuestRelease
 {
-    public const string DefaultChannel = "beta";
+    public const string DefaultChannel = "stable";
     public const string EchoPackageName = "com.readyatdawn.r15";
 
     public static bool TryPick(
