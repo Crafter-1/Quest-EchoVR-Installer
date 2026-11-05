@@ -104,6 +104,11 @@ public class StoragePermissionGate : MonoBehaviour
         if (mainMenuPanel != null)
             mainMenuPanel.SetActive(false);
 
+        // Whichever Start() runs first, the after-install panel must not sit on top of this one.
+        AfterInstallController afterInstall = FindFirstObjectByType<AfterInstallController>();
+        if (afterInstall != null && afterInstall.afterInstallPanel != null)
+            afterInstall.afterInstallPanel.SetActive(false);
+
         SetStatus("Storage access is required to install Echo VR data.");
     }
 

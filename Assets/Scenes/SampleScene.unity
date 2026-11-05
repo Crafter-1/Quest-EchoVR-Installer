@@ -194,6 +194,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::AfterInstallController
   downloadPanel: {fileID: 854633377}
   afterInstallPanel: {fileID: 1592417853}
+  storagePermissionPanel: {fileID: 1657030726}
   statusText: {fileID: 1732612122}
   extractDataButton: {fileID: 421865541}
   openEchoPermissionsButton: {fileID: 1833535071}
@@ -770,7 +771,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &87341679
 RectTransform:
   m_ObjectHideFlags: 0
@@ -8971,8 +8972,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 43.5, y: 15}
+  m_SizeDelta: {x: 574.6, y: -30.1}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1285957436
 MonoBehaviour:
@@ -11183,8 +11184,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_AnchoredPosition: {x: -38.6, y: 8.19}
+  m_SizeDelta: {x: 521.9, y: -16.38}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1592417855
 MonoBehaviour:

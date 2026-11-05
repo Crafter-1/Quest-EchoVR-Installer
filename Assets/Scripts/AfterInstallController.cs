@@ -14,6 +14,10 @@ public class AfterInstallController : MonoBehaviour
     public GameObject downloadPanel;
     public GameObject afterInstallPanel;
 
+    [Tooltip("StoragePermissionGate's permission panel. While it is up, this panel stays hidden so the two never overlap.")]
+    public GameObject storagePermissionPanel;
+
+
     [Header("UI")]
     public TMP_Text statusText;
     public Button extractDataButton;
@@ -791,7 +795,17 @@ public class AfterInstallController : MonoBehaviour
         if (_migrating)
             return;
 
+                // The storage permission panel always wins. While it is up, this panel stays hidden;
+        // StoragePermissionGate calls back here once permission is granted.
+        if (storagePermissionPanel != null && storagePermissionPanel.activeSelf)
+        {
+            if (afterInstallPanel != null)
+                afterInstallPanel.SetActive(false);
+            return;
+        }
+
         bool echoInstalled = IsEchoInstalled();
+
 
         if (echoInstalled && _dataReady)
         {
