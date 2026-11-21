@@ -106,7 +106,8 @@ public class InstallMenuController : MonoBehaviour
                     installer.SkipApkInstallBecauseCurrent();
                     break;
                 default:
-                    StartMigration(apk);
+                    // DifferentSigner is handled above; anything else unexpected is treated the same.
+                    ShowUninstallFirstPanel();
                     break;
             }
         });
