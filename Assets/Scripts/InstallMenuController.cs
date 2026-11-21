@@ -158,6 +158,7 @@ public class InstallMenuController : MonoBehaviour
     // Wire to a Back button on the panel.
     public void OnUninstallFirstBack()
     {
+        InstallerLog.Mark("UNINSTALL_FIRST_BACK");
         _pendingUninstallCheck = false;
         if (uninstallFirstPanel != null)
             uninstallFirstPanel.SetActive(false);
