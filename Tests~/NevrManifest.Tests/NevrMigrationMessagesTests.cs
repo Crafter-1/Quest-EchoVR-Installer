@@ -112,8 +112,11 @@ public class NevrMigrationWiringTests
         string after = Source("AfterInstallController.cs");
         Assert.Matches(@"BeginMigrationFromInstallMenu\(\s*NevrArtifact\s+apk,\s*ApkInstaller\s+installer\s*\)", after);
 
+        // The install menu no longer migrates on its own: a non-nevr Echo gets the
+        // "uninstall first" panel instead (issue #13).
         string menu = Source("InstallMenuController.cs");
-        Assert.Matches(@"BeginMigrationFromInstallMenu\(\s*apk,\s*installer\s*\)", menu);
+        Assert.DoesNotContain("BeginMigrationFromInstallMenu", menu);
+        Assert.Contains("ShowUninstallFirstPanel()", menu);
     }
 
     [Fact]

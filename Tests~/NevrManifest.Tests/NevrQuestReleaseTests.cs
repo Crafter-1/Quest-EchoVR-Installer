@@ -199,6 +199,17 @@ public class NevrInstallPlanTests
     }
 }
 
+public class NevrStockVersionCodeTests
+{
+    [Fact]
+    public void OnlyTheStockVersionCodeIsStock()
+    {
+        Assert.True(NevrQuestRelease.IsStockVersionCode(4987566));
+        Assert.False(NevrQuestRelease.IsStockVersionCode(61605999));
+        Assert.False(NevrQuestRelease.IsStockVersionCode(61700999));
+    }
+}
+
 public class NevrInstalledCheckTests
 {
     private const string Cert = "c0ffee0000000000000000000000000000000000000000000000000000000000";

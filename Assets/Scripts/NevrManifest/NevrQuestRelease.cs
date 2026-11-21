@@ -17,6 +17,16 @@ public static class NevrQuestRelease
     public const string DefaultChannel = "stable";
     public const string EchoPackageName = "com.readyatdawn.r15";
 
+    // The version code of Ready At Dawn's stock Echo VR. Ours are far higher (like 61605999).
+    // versionName is the same on both builds, so it says nothing; the signer is what decides,
+    // and this is the second signal for a build that claims to be ours but is the stock one.
+    public const long StockVersionCode = 4987566;
+
+    public static bool IsStockVersionCode(long versionCode)
+    {
+        return versionCode == StockVersionCode;
+    }
+
     public static bool TryPick(
         NevrManifest manifest,
         string channel,
