@@ -82,11 +82,9 @@ public class InstallMenuController : MonoBehaviour
             NevrInstallAction action = NevrQuestRelease.Plan(
                 apk, installed, installed ? details.VersionCode : 0, installed ? details.SignerCertSha256 : null);
             InstallerLog.Mark("INSTALL_PLAN", "action=" + action);
-            // The manifest is accepted: only now may the game-data download start.
-            NevrInstallGate.Open();
-
             // Not our Echo: the signer differs, or the version code is the stock build's.
-            // The player uninstalls it first; nothing is installed over it.
+            // The player uninstalls it first; nothing is installed over it, and the gate stays
+            // closed so the game-data download does not start behind the panel.
             if (action == NevrInstallAction.DifferentSigner ||
                 (installed && NevrQuestRelease.IsStockVersionCode(details.VersionCode)))
             {
@@ -94,6 +92,9 @@ public class InstallMenuController : MonoBehaviour
                 ShowUninstallFirstPanel();
                 return;
             }
+
+            // The manifest is accepted: only now may the game-data download start.
+            NevrInstallGate.Open();
 
             switch (action)
             {
