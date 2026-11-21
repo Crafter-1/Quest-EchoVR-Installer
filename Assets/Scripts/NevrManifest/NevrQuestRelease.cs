@@ -20,11 +20,27 @@ public static class NevrQuestRelease
     // The version code of Ready At Dawn's stock Echo VR. Ours are far higher (like 61605999).
     // versionName is the same on both builds, so it says nothing; the signer is what decides,
     // and this is the second signal for a build that claims to be ours but is the stock one.
+    // Seen on stock builds: 4987566, and 4987570 on a headset checked over ADB on 2026-11-21.
     public const long StockVersionCode = 4987566;
+    private static readonly long[] StockVersionCodes = { StockVersionCode, 4987570 };
 
     public static bool IsStockVersionCode(long versionCode)
     {
-        return versionCode == StockVersionCode;
+        return System.Array.IndexOf(StockVersionCodes, versionCode) >= 0;
+    }
+
+    // Our APK's signer, for the startup check that runs before the manifest has been fetched.
+    // The manifest's own value is what the install itself is checked against.
+    public const string OurSignerCertSha256 = "3bcb586824efa14a6d8566c5e027f0263edc657c16a4631e3b305c2d595ae085";
+
+    // True when an installed Echo is not ours: another signer, or the stock version code.
+    public static bool IsNonNevrEcho(long versionCode, IReadOnlyList<string> signerCertSha256)
+    {
+        if (IsStockVersionCode(versionCode))
+            return true;
+
+        return signerCertSha256 == null || signerCertSha256.Count != 1 ||
+               !string.Equals(signerCertSha256[0], OurSignerCertSha256, StringComparison.OrdinalIgnoreCase);
     }
 
     public static bool TryPick(

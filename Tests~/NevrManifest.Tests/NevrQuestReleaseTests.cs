@@ -207,6 +207,18 @@ public class NevrStockVersionCodeTests
         Assert.True(NevrQuestRelease.IsStockVersionCode(4987566));
         Assert.False(NevrQuestRelease.IsStockVersionCode(61605999));
         Assert.False(NevrQuestRelease.IsStockVersionCode(61700999));
+        Assert.True(NevrQuestRelease.IsStockVersionCode(4987570));
+    }
+
+    [Fact]
+    public void NonNevrEchoIsStockOrAnotherSigner()
+    {
+        string[] ours = { NevrQuestRelease.OurSignerCertSha256 };
+        string[] theirs = { "1111111111111111111111111111111111111111111111111111111111111111" };
+        Assert.False(NevrQuestRelease.IsNonNevrEcho(61605999, ours));
+        Assert.True(NevrQuestRelease.IsNonNevrEcho(61605999, theirs));
+        Assert.True(NevrQuestRelease.IsNonNevrEcho(61605999, null));
+        Assert.True(NevrQuestRelease.IsNonNevrEcho(4987570, ours));
     }
 }
 

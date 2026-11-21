@@ -121,12 +121,16 @@ public class InstallMenuController : MonoBehaviour
 
     private bool _pendingUninstallCheck;
 
-    private void ShowUninstallFirstPanel()
+    public void ShowUninstallFirstPanel()
     {
+        if (mainMenuPanel != null)
+            mainMenuPanel.SetActive(false);
+
         if (uninstallFirstPanel == null)
         {
             InstallerLog.Error("UNINSTALL_FIRST_PANEL_MISSING");
-            installer.SetStatusMessage("Another build of Echo VR is installed. Uninstall it from the Quest library, then run the installer again.");
+            if (installer != null)
+                installer.SetStatusMessage("Another build of Echo VR is installed. Uninstall it from the Quest library, then run the installer again.");
             return;
         }
 
