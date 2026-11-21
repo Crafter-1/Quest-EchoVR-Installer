@@ -120,6 +120,25 @@ public class StoragePermissionGate : MonoBehaviour
         if (permissionPanel != null)
             permissionPanel.SetActive(false);
 
+        // An Echo that is not ours (stock, or the community installer's) must be uninstalled
+        // first. Checked before the existing-install path, which would otherwise treat any
+        // package named Echo VR as ours and start downloading game data for it.
+        if (NevrAndroid.TryReadInstalled(
+                NevrQuestRelease.EchoPackageName, out bool echoInstalled,
+                out NevrAndroid.PackageDetails echoDetails, out _) &&
+            echoInstalled &&
+            NevrQuestRelease.IsNonNevrEcho(echoDetails.VersionCode, echoDetails.SignerCertSha256))
+        {
+            InstallerLog.Mark("NON_NEVR_ECHO_DETECTED", "source=startup | versionCode=" + echoDetails.VersionCode);
+            InstallMenuController menu = FindFirstObjectByType<InstallMenuController>(FindObjectsInactive.Include);
+            if (menu != null)
+            {
+                menu.ShowUninstallFirstPanel();
+                SetStatus("A different build of Echo VR is installed.");
+                return;
+            }
+        }
+
         AfterInstallController afterInstallController =
             FindFirstObjectByType<AfterInstallController>();
         bool existingInstallHandled = afterInstallController != null &&
